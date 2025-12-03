@@ -7,10 +7,10 @@
 //! - Offset recovery
 //! - Rollback handling
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
+use kafka_backup_core::restore::engine::RestoreEngine;
 use kube::{
     api::{Patch, PatchParams},
     runtime::controller::Action,
@@ -19,7 +19,10 @@ use kube::{
 use serde_json::json;
 use tracing::{error, info, warn};
 
-use crate::crd::{KafkaRestore, KafkaRestoreStatus};
+use crate::adapters::{
+    build_restore_config, to_core_restore_config, ResolvedBackupSource, ResolvedStorage,
+};
+use crate::crd::{KafkaBackup, KafkaRestore};
 use crate::error::{Error, Result};
 use crate::metrics;
 
@@ -232,31 +235,115 @@ struct RestoreResult {
     offset_mapping_path: Option<String>,
 }
 
-/// Execute the actual restore (placeholder for kafka-backup-core integration)
+/// Execute the actual restore using kafka-backup-core library
 async fn execute_restore_internal(
     restore: &KafkaRestore,
     client: &Client,
     namespace: &str,
 ) -> Result<RestoreResult> {
-    // TODO: Implement actual restore using kafka-backup-core library
-    // This is a placeholder that demonstrates the expected interface
+    let name = restore.name_any();
 
-    // 1. Resolve backup reference
-    // let backup_location = resolve_backup_ref(&restore.spec.backup_ref, client, namespace).await?;
+    info!(name = %name, "Building restore configuration");
 
-    // 2. Build configuration from CRD spec
-    // let config = crate::adapters::build_restore_config(restore, client, namespace).await?;
+    // 1. Build resolved configuration from CRD spec
+    let resolved_config = build_restore_config(restore, client, namespace).await?;
 
-    // 3. Create and run the restore engine
-    // let engine = kafka_backup_core::RestoreEngine::new(config).await?;
-    // let result = engine.run().await?;
+    // 2. Resolve the backup source to get storage config and backup ID
+    let (backup_id, storage) = resolve_backup_source(&resolved_config.backup_source, client, namespace).await?;
+
+    info!(
+        name = %name,
+        backup_id = %backup_id,
+        topics = ?resolved_config.topics,
+        "Starting restore engine"
+    );
+
+    // 3. Convert to kafka-backup-core Config
+    let core_config = to_core_restore_config(&resolved_config, &backup_id, &storage)
+        .map_err(|e| Error::Core(format!("Failed to build core config: {}", e)))?;
+
+    // 4. Create the restore engine (sync constructor)
+    let engine = RestoreEngine::new(core_config)
+        .map_err(|e| Error::Core(format!("Failed to create restore engine: {}", e)))?;
+
+    // 5. Get progress receiver for monitoring
+    let mut progress_rx = engine.progress_receiver();
+
+    // Spawn progress monitoring task
+    let name_clone = name.clone();
+    tokio::spawn(async move {
+        while let Ok(progress) = progress_rx.recv().await {
+            info!(
+                name = %name_clone,
+                records = progress.records_restored,
+                percentage = progress.percentage,
+                throughput = progress.throughput_records_per_sec,
+                "Restore progress"
+            );
+        }
+    });
+
+    // 6. Run the restore
+    let report = engine
+        .run()
+        .await
+        .map_err(|e| Error::Core(format!("Restore execution failed: {}", e)))?;
+
+    info!(
+        name = %name,
+        backup_id = %backup_id,
+        records = report.records_restored,
+        bytes = report.bytes_restored,
+        "Restore completed successfully"
+    );
 
     Ok(RestoreResult {
-        records_restored: 0,
-        bytes_restored: 0,
-        segments_processed: 0,
-        offset_mapping_path: None,
+        records_restored: report.records_restored,
+        bytes_restored: report.bytes_restored,
+        segments_processed: report.segments_processed,
+        offset_mapping_path: None, // Offset mapping stored in report.offset_mapping
     })
+}
+
+/// Resolve backup source to get backup ID and storage configuration
+async fn resolve_backup_source(
+    source: &ResolvedBackupSource,
+    client: &Client,
+    namespace: &str,
+) -> Result<(String, ResolvedStorage)> {
+    match source {
+        ResolvedBackupSource::Storage(storage) => {
+            // Direct storage reference - use a generated backup ID
+            let backup_id = format!("restore-{}", Utc::now().format("%Y%m%d-%H%M%S"));
+            Ok((backup_id, storage.clone()))
+        }
+        ResolvedBackupSource::BackupResource { name, namespace: backup_ns, backup_id } => {
+            // Reference to a KafkaBackup resource - fetch it to get storage config
+            let api: Api<KafkaBackup> = Api::namespaced(client.clone(), backup_ns);
+            let backup = api.get(name).await.map_err(|e| {
+                Error::BackupNotFound(format!("Failed to fetch KafkaBackup '{}': {}", name, e))
+            })?;
+
+            // Use provided backup_id or latest from status
+            let resolved_backup_id = backup_id.clone().unwrap_or_else(|| {
+                backup
+                    .status
+                    .as_ref()
+                    .and_then(|s| s.backup_id.clone())
+                    .unwrap_or_else(|| format!("{}-latest", name))
+            });
+
+            // Build storage config from the backup's storage spec
+            let storage = crate::adapters::build_storage_config(
+                &backup.spec.storage,
+                client,
+                backup_ns,
+            )
+            .await?;
+
+            Ok((resolved_backup_id, storage))
+        }
+    }
 }
 
 /// Update status to Failed

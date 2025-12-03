@@ -1,0 +1,147 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kafka-backup-operator.fullname" . }}
+  labels:
+    {{- include "kafka-backup-operator.labels" . | nindent 4 }}
+rules:
+  # Core resources
+  - apiGroups: [""]
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups: [""]
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups: [""]
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+
+  # Custom resources - KafkaBackup
+  - apiGroups: ["kafka-backup.oso.sh"]
+    resources:
+      - kafkabackups
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups: ["kafka-backup.oso.sh"]
+    resources:
+      - kafkabackups/status
+    verbs:
+      - get
+      - update
+      - patch
+  - apiGroups: ["kafka-backup.oso.sh"]
+    resources:
+      - kafkabackups/finalizers
+    verbs:
+      - update
+
+  # Custom resources - KafkaRestore
+  - apiGroups: ["kafka-backup.oso.sh"]
+    resources:
+      - kafkarestores
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups: ["kafka-backup.oso.sh"]
+    resources:
+      - kafkarestores/status
+    verbs:
+      - get
+      - update
+      - patch
+  - apiGroups: ["kafka-backup.oso.sh"]
+    resources:
+      - kafkarestores/finalizers
+    verbs:
+      - update
+
+  # Custom resources - KafkaOffsetReset
+  - apiGroups: ["kafka-backup.oso.sh"]
+    resources:
+      - kafkaoffsetresets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups: ["kafka-backup.oso.sh"]
+    resources:
+      - kafkaoffsetresets/status
+    verbs:
+      - get
+      - update
+      - patch
+  - apiGroups: ["kafka-backup.oso.sh"]
+    resources:
+      - kafkaoffsetresets/finalizers
+    verbs:
+      - update
+
+  # Custom resources - KafkaOffsetRollback
+  - apiGroups: ["kafka-backup.oso.sh"]
+    resources:
+      - kafkaoffsetrollbacks
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups: ["kafka-backup.oso.sh"]
+    resources:
+      - kafkaoffsetrollbacks/status
+    verbs:
+      - get
+      - update
+      - patch
+  - apiGroups: ["kafka-backup.oso.sh"]
+    resources:
+      - kafkaoffsetrollbacks/finalizers
+    verbs:
+      - update
+
+  {{- if .Values.leaderElection.enabled }}
+  # Coordination for leader election
+  - apiGroups: ["coordination.k8s.io"]
+    resources:
+      - leases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  {{- end }}

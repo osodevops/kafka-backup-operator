@@ -1,0 +1,22 @@
+apiVersion: v2
+name: kafka-backup-operator
+description: A Kubernetes operator for managing Kafka backup and restore operations
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/osodevops/kafka-backup-operator
+sources:
+  - https://github.com/osodevops/kafka-backup-operator
+maintainers:
+  - name: OSO DevOps
+    email: dev@oso.sh
+    url: https://oso.sh
+keywords:
+  - kafka
+  - backup
+  - restore
+  - operator
+  - disaster-recovery
+icon: https://raw.githubusercontent.com/osodevops/kafka-backup-operator/main/docs/icon.png
+annotations:
+  category: Infrastructure

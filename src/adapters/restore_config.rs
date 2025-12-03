@@ -9,7 +9,7 @@ use kube::Client;
 use crate::crd::{
     BackupRef, KafkaRestore, PitrSpec, RollbackSpec,
 };
-use crate::error::{Error, Result};
+use crate::error::Result;
 
 use super::backup_config::{
     build_kafka_config, ResolvedCircuitBreakerConfig, ResolvedKafkaConfig,

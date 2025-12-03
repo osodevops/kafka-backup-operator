@@ -6,11 +6,11 @@
 //! - Backup execution
 //! - Status updates
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use cron::Schedule;
+use kafka_backup_core::backup::BackupEngine;
 use kube::{
     api::{Patch, PatchParams},
     runtime::controller::Action,
@@ -18,9 +18,10 @@ use kube::{
 };
 use serde_json::json;
 use std::str::FromStr;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
-use crate::crd::{Condition, KafkaBackup, KafkaBackupStatus};
+use crate::adapters::{build_backup_config, to_core_backup_config};
+use crate::crd::KafkaBackup;
 use crate::error::{Error, Result};
 use crate::metrics;
 
@@ -305,30 +306,67 @@ struct BackupResult {
     segments_completed: u64,
 }
 
-/// Execute the actual backup (placeholder for kafka-backup-core integration)
+/// Execute the actual backup using kafka-backup-core library
 async fn execute_backup_internal(
     backup: &KafkaBackup,
     client: &Client,
     namespace: &str,
 ) -> Result<BackupResult> {
-    // TODO: Implement actual backup using kafka-backup-core library
-    // This is a placeholder that demonstrates the expected interface
+    let name = backup.name_any();
 
-    // 1. Build configuration from CRD spec using adapters
-    // let config = crate::adapters::build_backup_config(backup, client, namespace).await?;
+    // Generate unique backup ID
+    let backup_id = format!(
+        "{}-{}",
+        name,
+        Utc::now().format("%Y%m%d-%H%M%S")
+    );
 
-    // 2. Create and run the backup engine
-    // let engine = kafka_backup_core::BackupEngine::new(config).await?;
-    // let result = engine.run().await?;
+    info!(name = %name, backup_id = %backup_id, "Building backup configuration");
 
-    // For now, return a placeholder result
-    let backup_id = format!("backup-{}", Utc::now().timestamp());
+    // 1. Build resolved configuration from CRD spec using adapters
+    let resolved_config = build_backup_config(backup, client, namespace).await?;
+
+    // 2. Convert to kafka-backup-core Config
+    let core_config = to_core_backup_config(&resolved_config, &backup_id)
+        .map_err(|e| Error::Core(format!("Failed to build core config: {}", e)))?;
+
+    info!(
+        name = %name,
+        backup_id = %backup_id,
+        topics = ?resolved_config.topics,
+        "Starting backup engine"
+    );
+
+    // 3. Create the backup engine (async constructor)
+    let engine = BackupEngine::new(core_config)
+        .await
+        .map_err(|e| Error::Core(format!("Failed to create backup engine: {}", e)))?;
+
+    // 4. Get metrics handle for tracking progress
+    let metrics_handle = engine.metrics();
+
+    // 5. Run the backup
+    engine
+        .run()
+        .await
+        .map_err(|e| Error::Core(format!("Backup execution failed: {}", e)))?;
+
+    // 6. Extract final metrics
+    let metrics_report = metrics_handle.report();
+
+    info!(
+        name = %name,
+        backup_id = %backup_id,
+        records = metrics_report.records_processed,
+        bytes = metrics_report.bytes_written,
+        "Backup completed successfully"
+    );
 
     Ok(BackupResult {
         backup_id,
-        records_processed: 0,
-        bytes_processed: 0,
-        segments_completed: 0,
+        records_processed: metrics_report.records_processed,
+        bytes_processed: metrics_report.bytes_written,
+        segments_completed: metrics_report.segments_written,
     })
 }
 

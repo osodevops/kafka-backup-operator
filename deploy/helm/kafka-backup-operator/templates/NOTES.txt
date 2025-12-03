@@ -1,0 +1,41 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named: {{ .Release.Name }}
+
+To verify the installation, run:
+
+  kubectl get pods -l "app.kubernetes.io/name={{ include "kafka-backup-operator.name" . }},app.kubernetes.io/instance={{ .Release.Name }}"
+
+The operator is now watching for the following custom resources:
+  - KafkaBackup
+  - KafkaRestore
+  - KafkaOffsetReset
+  - KafkaOffsetRollback
+
+To create a backup, apply a KafkaBackup resource:
+
+  apiVersion: kafka-backup.oso.sh/v1alpha1
+  kind: KafkaBackup
+  metadata:
+    name: my-backup
+  spec:
+    topics:
+      - "my-topic"
+    kafkaCluster:
+      bootstrapServers:
+        - "kafka:9092"
+    storage:
+      storageType: pvc
+      pvc:
+        claimName: backup-storage
+    schedule: "0 2 * * *"  # Daily at 2 AM
+
+For more information, visit:
+  https://github.com/osodevops/kafka-backup-operator
+
+{{- if .Values.metrics.enabled }}
+
+Metrics are available at:
+  kubectl port-forward svc/{{ include "kafka-backup-operator.fullname" . }}-metrics 8080:8080
+  curl http://localhost:8080/metrics
+{{- end }}

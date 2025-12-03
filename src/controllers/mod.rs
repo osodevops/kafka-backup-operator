@@ -14,7 +14,6 @@ pub use offset_rollback_controller::run as run_offset_rollback_controller;
 pub use restore_controller::run as run_restore_controller;
 
 use kube::Client;
-use std::sync::Arc;
 
 /// Shared context for all controllers
 pub struct Context {

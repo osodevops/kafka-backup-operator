@@ -7,7 +7,7 @@ use kube::Client;
 use crate::crd::{
     CheckpointSpec, CircuitBreakerSpec, KafkaBackup, KafkaClusterSpec, RateLimitingSpec,
 };
-use crate::error::{Error, Result};
+use crate::error::Result;
 
 use super::secrets::{get_sasl_credentials, get_tls_credentials, TlsCredentials};
 use super::storage_config::{build_storage_config, ResolvedStorage};

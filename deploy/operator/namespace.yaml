@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kafka-backup-system
+  labels:
+    app.kubernetes.io/name: kafka-backup-operator
+    app.kubernetes.io/component: system
