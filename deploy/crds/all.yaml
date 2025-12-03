@@ -1,0 +1,1550 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: kafkabackups.kafka.oso.sh
+spec:
+  group: kafka.oso.sh
+  names:
+    categories: []
+    kind: KafkaBackup
+    plural: kafkabackups
+    shortNames:
+    - kb
+    singular: kafkabackup
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.lastBackupTime
+      name: Last Backup
+      type: string
+    - jsonPath: .status.recordsProcessed
+      name: Records
+      type: integer
+    - jsonPath: .status.resumable
+      name: Resumable
+      type: boolean
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for KafkaBackupSpec via `CustomResource`
+        properties:
+          spec:
+            description: KafkaBackup resource specification
+            properties:
+              checkpoint:
+                description: Checkpoint configuration for resumable backups
+                nullable: true
+                properties:
+                  enabled:
+                    default: true
+                    description: Enable checkpointing
+                    type: boolean
+                  intervalSecs:
+                    default: 30
+                    description: Checkpoint interval in seconds
+                    format: uint64
+                    minimum: 0.0
+                    type: integer
+                  storage:
+                    description: Separate checkpoint storage (defaults to backup storage)
+                    nullable: true
+                    properties:
+                      pvcName:
+                        description: PVC name for checkpoints
+                        type: string
+                      subPath:
+                        description: Sub-path within PVC
+                        nullable: true
+                        type: string
+                    required:
+                    - pvcName
+                    type: object
+                type: object
+              circuitBreaker:
+                description: Circuit breaker configuration
+                nullable: true
+                properties:
+                  enabled:
+                    default: true
+                    description: Enable circuit breaker
+                    type: boolean
+                  failureThreshold:
+                    default: 5
+                    description: Failure threshold before opening circuit
+                    format: uint32
+                    minimum: 0.0
+                    type: integer
+                  operationTimeoutMs:
+                    default: 30000
+                    description: Operation timeout (milliseconds)
+                    format: uint64
+                    minimum: 0.0
+                    type: integer
+                  resetTimeoutSecs:
+                    default: 60
+                    description: Time to wait before attempting recovery (seconds)
+                    format: uint64
+                    minimum: 0.0
+                    type: integer
+                  successThreshold:
+                    default: 3
+                    description: Success threshold to close circuit
+                    format: uint32
+                    minimum: 0.0
+                    type: integer
+                type: object
+              compression:
+                default: zstd
+                description: Compression algorithm (none, lz4, zstd)
+                type: string
+              compressionLevel:
+                default: 3
+                description: Compression level (1-22 for zstd)
+                format: int32
+                type: integer
+              kafkaCluster:
+                description: Kafka cluster connection configuration
+                properties:
+                  bootstrapServers:
+                    description: Bootstrap servers
+                    items:
+                      type: string
+                    type: array
+                  saslSecret:
+                    description: SASL configuration secret reference
+                    nullable: true
+                    properties:
+                      mechanism:
+                        description: SASL mechanism (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)
+                        type: string
+                      name:
+                        description: Secret name
+                        type: string
+                      passwordKey:
+                        default: password
+                        description: Password key in secret
+                        type: string
+                      usernameKey:
+                        default: username
+                        description: Username key in secret
+                        type: string
+                    required:
+                    - mechanism
+                    - name
+                    type: object
+                  securityProtocol:
+                    default: PLAINTEXT
+                    description: Security protocol (PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL)
+                    type: string
+                  tlsSecret:
+                    description: TLS configuration secret reference
+                    nullable: true
+                    properties:
+                      caKey:
+                        default: ca.crt
+                        description: CA certificate key in secret
+                        type: string
+                      certKey:
+                        description: Client certificate key in secret
+                        nullable: true
+                        type: string
+                      keyKey:
+                        description: Client key key in secret
+                        nullable: true
+                        type: string
+                      name:
+                        description: Secret name
+                        type: string
+                    required:
+                    - name
+                    type: object
+                required:
+                - bootstrapServers
+                type: object
+              rateLimiting:
+                description: Rate limiting configuration
+                nullable: true
+                properties:
+                  bytesPerSec:
+                    default: 0
+                    description: Maximum bytes per second (0 = unlimited)
+                    format: uint64
+                    minimum: 0.0
+                    type: integer
+                  maxConcurrentPartitions:
+                    default: 4
+                    description: Maximum concurrent partitions
+                    format: uint
+                    minimum: 0.0
+                    type: integer
+                  recordsPerSec:
+                    default: 0
+                    description: Maximum records per second (0 = unlimited)
+                    format: uint64
+                    minimum: 0.0
+                    type: integer
+                type: object
+              schedule:
+                description: Cron schedule for automated backups
+                nullable: true
+                type: string
+              storage:
+                description: Storage configuration
+                properties:
+                  azure:
+                    description: Azure Blob storage configuration
+                    nullable: true
+                    properties:
+                      accountName:
+                        description: Storage account name
+                        type: string
+                      container:
+                        description: Container name
+                        type: string
+                      credentialsSecret:
+                        description: Credentials secret reference
+                        properties:
+                          accountKeyKey:
+                            default: AZURE_STORAGE_KEY
+                            description: Account key key in secret
+                            type: string
+                          name:
+                            description: Secret name
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      prefix:
+                        description: Path prefix within container
+                        nullable: true
+                        type: string
+                    required:
+                    - accountName
+                    - container
+                    - credentialsSecret
+                    type: object
+                  gcs:
+                    description: GCS storage configuration
+                    nullable: true
+                    properties:
+                      bucket:
+                        description: GCS bucket name
+                        type: string
+                      credentialsSecret:
+                        description: Credentials secret reference
+                        properties:
+                          name:
+                            description: Secret name
+                            type: string
+                          serviceAccountJsonKey:
+                            default: SERVICE_ACCOUNT_JSON
+                            description: Service account JSON key in secret
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      prefix:
+                        description: Path prefix within bucket
+                        nullable: true
+                        type: string
+                    required:
+                    - bucket
+                    - credentialsSecret
+                    type: object
+                  pvc:
+                    description: PVC storage configuration
+                    nullable: true
+                    properties:
+                      claimName:
+                        description: PVC claim name
+                        type: string
+                      create:
+                        description: Auto-create PVC if not exists
+                        nullable: true
+                        properties:
+                          accessModes:
+                            default:
+                            - ReadWriteOnce
+                            description: Access modes
+                            items:
+                              type: string
+                            type: array
+                          enabled:
+                            default: false
+                            description: Enable auto-creation
+                            type: boolean
+                          size:
+                            default: 100Gi
+                            description: Storage size (e.g., "100Gi")
+                            type: string
+                          storageClassName:
+                            description: Storage class name
+                            nullable: true
+                            type: string
+                        type: object
+                      subPath:
+                        description: Sub-path within the PVC
+                        nullable: true
+                        type: string
+                    required:
+                    - claimName
+                    type: object
+                  s3:
+                    description: S3 storage configuration
+                    nullable: true
+                    properties:
+                      bucket:
+                        description: S3 bucket name
+                        type: string
+                      credentialsSecret:
+                        description: Credentials secret reference
+                        properties:
+                          accessKeyIdKey:
+                            default: AWS_ACCESS_KEY_ID
+                            description: Access key ID key in secret
+                            type: string
+                          name:
+                            description: Secret name
+                            type: string
+                          secretAccessKeyKey:
+                            default: AWS_SECRET_ACCESS_KEY
+                            description: Secret access key key in secret
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      endpoint:
+                        description: Custom endpoint (for MinIO, Ceph, etc.)
+                        nullable: true
+                        type: string
+                      prefix:
+                        description: Path prefix within bucket
+                        nullable: true
+                        type: string
+                      region:
+                        description: AWS region
+                        type: string
+                    required:
+                    - bucket
+                    - credentialsSecret
+                    - region
+                    type: object
+                  storageType:
+                    default: pvc
+                    description: Storage type (pvc, s3, azure, gcs)
+                    type: string
+                type: object
+              suspend:
+                default: false
+                description: Suspend backups (useful for maintenance)
+                type: boolean
+              topics:
+                description: Topics to backup
+                items:
+                  type: string
+                type: array
+            required:
+            - kafkaCluster
+            - storage
+            - topics
+            type: object
+          status:
+            description: KafkaBackup status
+            nullable: true
+            properties:
+              backupId:
+                description: Current backup ID
+                nullable: true
+                type: string
+              bytesProcessed:
+                description: Bytes processed in current/last backup
+                format: uint64
+                minimum: 0.0
+                nullable: true
+                type: integer
+              checkpointEnabled:
+                description: Whether checkpointing is enabled
+                nullable: true
+                type: boolean
+              conditions:
+                description: Status conditions
+                items:
+                  description: Status condition
+                  properties:
+                    lastTransitionTime:
+                      description: Last transition time
+                      format: date-time
+                      type: string
+                    message:
+                      description: Human-readable message
+                      nullable: true
+                      type: string
+                    reason:
+                      description: Reason for the condition
+                      nullable: true
+                      type: string
+                    status:
+                      description: Status (True, False, Unknown)
+                      type: string
+                    type:
+                      description: Condition type
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastBackupTime:
+                description: Last backup timestamp
+                format: date-time
+                nullable: true
+                type: string
+              lastCheckpointTime:
+                description: Last checkpoint timestamp
+                format: date-time
+                nullable: true
+                type: string
+              message:
+                description: Human-readable message
+                nullable: true
+                type: string
+              nextScheduledBackup:
+                description: Next scheduled backup timestamp
+                format: date-time
+                nullable: true
+                type: string
+              observedGeneration:
+                description: Observed generation
+                format: int64
+                nullable: true
+                type: integer
+              phase:
+                description: Current phase (Pending, Running, Completed, Failed)
+                nullable: true
+                type: string
+              recordsProcessed:
+                description: Records processed in current/last backup
+                format: uint64
+                minimum: 0.0
+                nullable: true
+                type: integer
+              resumable:
+                description: Whether the backup can be resumed
+                nullable: true
+                type: boolean
+              segmentsCompleted:
+                description: Segments completed in current/last backup
+                format: uint64
+                minimum: 0.0
+                nullable: true
+                type: integer
+              throughputBytesPerSec:
+                description: Throughput (bytes per second)
+                format: double
+                nullable: true
+                type: number
+              throughputRecordsPerSec:
+                description: Throughput (records per second)
+                format: double
+                nullable: true
+                type: number
+            type: object
+        required:
+        - spec
+        title: KafkaBackup
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: kafkarestores.kafka.oso.sh
+spec:
+  group: kafka.oso.sh
+  names:
+    categories: []
+    kind: KafkaRestore
+    plural: kafkarestores
+    shortNames:
+    - kr
+    singular: kafkarestore
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.progressPercent
+      name: Progress
+      type: string
+    - jsonPath: .status.recordsRestored
+      name: Records
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for KafkaRestoreSpec via `CustomResource`
+        properties:
+          spec:
+            description: KafkaRestore resource specification
+            properties:
+              backupRef:
+                description: Reference to backup to restore from
+                properties:
+                  backupId:
+                    description: Specific backup ID (if multiple backups exist)
+                    nullable: true
+                    type: string
+                  name:
+                    description: KafkaBackup resource name
+                    type: string
+                  namespace:
+                    description: Namespace (defaults to same namespace)
+                    nullable: true
+                    type: string
+                  storage:
+                    description: 'Alternative: Direct storage reference (for external backups)'
+                    nullable: true
+                    properties:
+                      azure:
+                        description: Azure Blob storage configuration
+                        nullable: true
+                        properties:
+                          accountName:
+                            description: Storage account name
+                            type: string
+                          container:
+                            description: Container name
+                            type: string
+                          credentialsSecret:
+                            description: Credentials secret reference
+                            properties:
+                              accountKeyKey:
+                                default: AZURE_STORAGE_KEY
+                                description: Account key key in secret
+                                type: string
+                              name:
+                                description: Secret name
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          prefix:
+                            description: Path prefix within container
+                            nullable: true
+                            type: string
+                        required:
+                        - accountName
+                        - container
+                        - credentialsSecret
+                        type: object
+                      gcs:
+                        description: GCS storage configuration
+                        nullable: true
+                        properties:
+                          bucket:
+                            description: GCS bucket name
+                            type: string
+                          credentialsSecret:
+                            description: Credentials secret reference
+                            properties:
+                              name:
+                                description: Secret name
+                                type: string
+                              serviceAccountJsonKey:
+                                default: SERVICE_ACCOUNT_JSON
+                                description: Service account JSON key in secret
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          prefix:
+                            description: Path prefix within bucket
+                            nullable: true
+                            type: string
+                        required:
+                        - bucket
+                        - credentialsSecret
+                        type: object
+                      pvc:
+                        description: PVC storage configuration
+                        nullable: true
+                        properties:
+                          claimName:
+                            description: PVC claim name
+                            type: string
+                          create:
+                            description: Auto-create PVC if not exists
+                            nullable: true
+                            properties:
+                              accessModes:
+                                default:
+                                - ReadWriteOnce
+                                description: Access modes
+                                items:
+                                  type: string
+                                type: array
+                              enabled:
+                                default: false
+                                description: Enable auto-creation
+                                type: boolean
+                              size:
+                                default: 100Gi
+                                description: Storage size (e.g., "100Gi")
+                                type: string
+                              storageClassName:
+                                description: Storage class name
+                                nullable: true
+                                type: string
+                            type: object
+                          subPath:
+                            description: Sub-path within the PVC
+                            nullable: true
+                            type: string
+                        required:
+                        - claimName
+                        type: object
+                      s3:
+                        description: S3 storage configuration
+                        nullable: true
+                        properties:
+                          bucket:
+                            description: S3 bucket name
+                            type: string
+                          credentialsSecret:
+                            description: Credentials secret reference
+                            properties:
+                              accessKeyIdKey:
+                                default: AWS_ACCESS_KEY_ID
+                                description: Access key ID key in secret
+                                type: string
+                              name:
+                                description: Secret name
+                                type: string
+                              secretAccessKeyKey:
+                                default: AWS_SECRET_ACCESS_KEY
+                                description: Secret access key key in secret
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          endpoint:
+                            description: Custom endpoint (for MinIO, Ceph, etc.)
+                            nullable: true
+                            type: string
+                          prefix:
+                            description: Path prefix within bucket
+                            nullable: true
+                            type: string
+                          region:
+                            description: AWS region
+                            type: string
+                        required:
+                        - bucket
+                        - credentialsSecret
+                        - region
+                        type: object
+                      storageType:
+                        default: pvc
+                        description: Storage type (pvc, s3, azure, gcs)
+                        type: string
+                    type: object
+                required:
+                - name
+                type: object
+              circuitBreaker:
+                description: Circuit breaker configuration
+                nullable: true
+                properties:
+                  enabled:
+                    default: true
+                    description: Enable circuit breaker
+                    type: boolean
+                  failureThreshold:
+                    default: 5
+                    description: Failure threshold before opening circuit
+                    format: uint32
+                    minimum: 0.0
+                    type: integer
+                  operationTimeoutMs:
+                    default: 30000
+                    description: Operation timeout (milliseconds)
+                    format: uint64
+                    minimum: 0.0
+                    type: integer
+                  resetTimeoutSecs:
+                    default: 60
+                    description: Time to wait before attempting recovery (seconds)
+                    format: uint64
+                    minimum: 0.0
+                    type: integer
+                  successThreshold:
+                    default: 3
+                    description: Success threshold to close circuit
+                    format: uint32
+                    minimum: 0.0
+                    type: integer
+                type: object
+              dryRun:
+                default: false
+                description: Dry run mode (validate without executing)
+                type: boolean
+              kafkaCluster:
+                description: Target Kafka cluster (can differ from backup source)
+                properties:
+                  bootstrapServers:
+                    description: Bootstrap servers
+                    items:
+                      type: string
+                    type: array
+                  saslSecret:
+                    description: SASL configuration secret reference
+                    nullable: true
+                    properties:
+                      mechanism:
+                        description: SASL mechanism (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)
+                        type: string
+                      name:
+                        description: Secret name
+                        type: string
+                      passwordKey:
+                        default: password
+                        description: Password key in secret
+                        type: string
+                      usernameKey:
+                        default: username
+                        description: Username key in secret
+                        type: string
+                    required:
+                    - mechanism
+                    - name
+                    type: object
+                  securityProtocol:
+                    default: PLAINTEXT
+                    description: Security protocol (PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL)
+                    type: string
+                  tlsSecret:
+                    description: TLS configuration secret reference
+                    nullable: true
+                    properties:
+                      caKey:
+                        default: ca.crt
+                        description: CA certificate key in secret
+                        type: string
+                      certKey:
+                        description: Client certificate key in secret
+                        nullable: true
+                        type: string
+                      keyKey:
+                        description: Client key key in secret
+                        nullable: true
+                        type: string
+                      name:
+                        description: Secret name
+                        type: string
+                    required:
+                    - name
+                    type: object
+                required:
+                - bootstrapServers
+                type: object
+              offsetReset:
+                description: Consumer offset reset configuration
+                nullable: true
+                properties:
+                  consumerGroups:
+                    description: Consumer groups to reset
+                    items:
+                      type: string
+                    type: array
+                  enabled:
+                    default: false
+                    description: Enable offset reset as part of restore
+                    type: boolean
+                  strategy:
+                    default: manual
+                    description: Reset strategy (manual, auto, dry_run)
+                    type: string
+                required:
+                - consumerGroups
+                type: object
+              partitionMapping:
+                additionalProperties:
+                  format: int32
+                  type: integer
+                default: {}
+                description: Partition remapping (source -> target)
+                type: object
+              pitr:
+                description: Point-in-time recovery configuration
+                nullable: true
+                properties:
+                  endTime:
+                    description: 'Alternative: End time as ISO 8601 string'
+                    format: date-time
+                    nullable: true
+                    type: string
+                  endTimestamp:
+                    description: End timestamp (epoch milliseconds)
+                    format: int64
+                    nullable: true
+                    type: integer
+                  startTime:
+                    description: 'Alternative: Start time as ISO 8601 string'
+                    format: date-time
+                    nullable: true
+                    type: string
+                  startTimestamp:
+                    description: Start timestamp (epoch milliseconds)
+                    format: int64
+                    nullable: true
+                    type: integer
+                type: object
+              rateLimiting:
+                description: Rate limiting configuration
+                nullable: true
+                properties:
+                  bytesPerSec:
+                    default: 0
+                    description: Maximum bytes per second (0 = unlimited)
+                    format: uint64
+                    minimum: 0.0
+                    type: integer
+                  maxConcurrentPartitions:
+                    default: 4
+                    description: Maximum concurrent partitions
+                    format: uint
+                    minimum: 0.0
+                    type: integer
+                  recordsPerSec:
+                    default: 0
+                    description: Maximum records per second (0 = unlimited)
+                    format: uint64
+                    minimum: 0.0
+                    type: integer
+                type: object
+              rollback:
+                description: Rollback safety configuration
+                nullable: true
+                properties:
+                  autoRollbackOnFailure:
+                    default: false
+                    description: Auto-rollback on failure
+                    type: boolean
+                  snapshotBeforeRestore:
+                    default: true
+                    description: Create snapshot before restore
+                    type: boolean
+                  snapshotRetentionHours:
+                    default: 24
+                    description: Snapshot retention (hours)
+                    format: uint32
+                    minimum: 0.0
+                    type: integer
+                  snapshotStorage:
+                    description: Snapshot storage (defaults to operator storage)
+                    nullable: true
+                    properties:
+                      pvcName:
+                        description: PVC name for snapshots
+                        type: string
+                      subPath:
+                        description: Sub-path within PVC
+                        nullable: true
+                        type: string
+                    required:
+                    - pvcName
+                    type: object
+                type: object
+              topicMapping:
+                additionalProperties:
+                  type: string
+                default: {}
+                description: Topic remapping (source -> target)
+                type: object
+              topics:
+                default: []
+                description: Topics to restore (empty = all topics from backup)
+                items:
+                  type: string
+                type: array
+            required:
+            - backupRef
+            - kafkaCluster
+            type: object
+          status:
+            description: KafkaRestore status
+            nullable: true
+            properties:
+              bytesRestored:
+                description: Bytes restored
+                format: uint64
+                minimum: 0.0
+                nullable: true
+                type: integer
+              completionTime:
+                description: Completion time
+                format: date-time
+                nullable: true
+                type: string
+              conditions:
+                description: Status conditions
+                items:
+                  description: Status condition
+                  properties:
+                    lastTransitionTime:
+                      description: Last transition time
+                      format: date-time
+                      type: string
+                    message:
+                      description: Human-readable message
+                      nullable: true
+                      type: string
+                    reason:
+                      description: Reason for the condition
+                      nullable: true
+                      type: string
+                    status:
+                      description: Status (True, False, Unknown)
+                      type: string
+                    type:
+                      description: Condition type
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - status
+                  - type
+                  type: object
+                type: array
+              currentTopic:
+                description: Current topic being restored
+                nullable: true
+                type: string
+              etaMs:
+                description: ETA (milliseconds)
+                format: uint64
+                minimum: 0.0
+                nullable: true
+                type: integer
+              message:
+                description: Human-readable message
+                nullable: true
+                type: string
+              observedGeneration:
+                description: Observed generation
+                format: int64
+                nullable: true
+                type: integer
+              offsetMappingPath:
+                description: Offset mapping path (for post-restore offset reset)
+                nullable: true
+                type: string
+              phase:
+                description: Current phase (Pending, Running, Completed, Failed, RolledBack)
+                nullable: true
+                type: string
+              progressPercent:
+                description: Progress percentage (0-100)
+                format: double
+                nullable: true
+                type: number
+              recordsRestored:
+                description: Records restored
+                format: uint64
+                minimum: 0.0
+                nullable: true
+                type: integer
+              rollback:
+                description: Rollback status
+                nullable: true
+                properties:
+                  expiresAt:
+                    description: Snapshot expiry time
+                    format: date-time
+                    nullable: true
+                    type: string
+                  rollbackAvailable:
+                    description: Whether rollback is available
+                    type: boolean
+                  snapshotId:
+                    description: Snapshot ID
+                    type: string
+                  snapshotPath:
+                    description: Snapshot storage path
+                    type: string
+                  snapshotTime:
+                    description: Snapshot time
+                    format: date-time
+                    type: string
+                required:
+                - rollbackAvailable
+                - snapshotId
+                - snapshotPath
+                - snapshotTime
+                type: object
+              segmentsProcessed:
+                description: Segments processed
+                format: uint64
+                minimum: 0.0
+                nullable: true
+                type: integer
+              startTime:
+                description: Start time
+                format: date-time
+                nullable: true
+                type: string
+              throughputRecordsPerSec:
+                description: Throughput (records per second)
+                format: double
+                nullable: true
+                type: number
+            type: object
+        required:
+        - spec
+        title: KafkaRestore
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: kafkaoffsetresets.kafka.oso.sh
+spec:
+  group: kafka.oso.sh
+  names:
+    categories: []
+    kind: KafkaOffsetReset
+    plural: kafkaoffsetresets
+    shortNames:
+    - kor
+    singular: kafkaoffsetreset
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.groupsReset
+      name: Groups
+      type: integer
+    - jsonPath: .status.groupsFailed
+      name: Failed
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for KafkaOffsetResetSpec via `CustomResource`
+        properties:
+          spec:
+            description: KafkaOffsetReset resource specification
+            properties:
+              consumerGroups:
+                description: Consumer groups to reset
+                items:
+                  type: string
+                type: array
+              continueOnError:
+                default: false
+                description: Continue on error (don't fail entire operation if one group fails)
+                type: boolean
+              dryRun:
+                default: false
+                description: Dry run mode
+                type: boolean
+              kafkaCluster:
+                description: Target Kafka cluster
+                properties:
+                  bootstrapServers:
+                    description: Bootstrap servers
+                    items:
+                      type: string
+                    type: array
+                  saslSecret:
+                    description: SASL configuration secret reference
+                    nullable: true
+                    properties:
+                      mechanism:
+                        description: SASL mechanism (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)
+                        type: string
+                      name:
+                        description: Secret name
+                        type: string
+                      passwordKey:
+                        default: password
+                        description: Password key in secret
+                        type: string
+                      usernameKey:
+                        default: username
+                        description: Username key in secret
+                        type: string
+                    required:
+                    - mechanism
+                    - name
+                    type: object
+                  securityProtocol:
+                    default: PLAINTEXT
+                    description: Security protocol (PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL)
+                    type: string
+                  tlsSecret:
+                    description: TLS configuration secret reference
+                    nullable: true
+                    properties:
+                      caKey:
+                        default: ca.crt
+                        description: CA certificate key in secret
+                        type: string
+                      certKey:
+                        description: Client certificate key in secret
+                        nullable: true
+                        type: string
+                      keyKey:
+                        description: Client key key in secret
+                        nullable: true
+                        type: string
+                      name:
+                        description: Secret name
+                        type: string
+                    required:
+                    - name
+                    type: object
+                required:
+                - bootstrapServers
+                type: object
+              offsetMappingRef:
+                description: Reference to offset mapping from a restore operation
+                nullable: true
+                properties:
+                  path:
+                    description: Direct path to offset mapping file
+                    nullable: true
+                    type: string
+                  pvcName:
+                    description: PVC containing the mapping
+                    nullable: true
+                    type: string
+                  restoreName:
+                    description: KafkaRestore resource name
+                    nullable: true
+                    type: string
+                type: object
+              parallelism:
+                default: 50
+                description: Parallelism for bulk reset
+                format: uint
+                minimum: 0.0
+                type: integer
+              resetOffset:
+                description: Target offset for to-offset strategy
+                format: int64
+                nullable: true
+                type: integer
+              resetStrategy:
+                description: Reset strategy
+                enum:
+                - to-earliest
+                - to-latest
+                - to-timestamp
+                - to-offset
+                - from-mapping
+                type: string
+              resetTimestamp:
+                description: Target timestamp for to-timestamp strategy (epoch ms)
+                format: int64
+                nullable: true
+                type: integer
+              snapshotBeforeReset:
+                default: true
+                description: Snapshot before reset for rollback
+                type: boolean
+              topics:
+                default: []
+                description: Topics to reset (empty = all topics for the group)
+                items:
+                  type: string
+                type: array
+            required:
+            - consumerGroups
+            - kafkaCluster
+            - resetStrategy
+            type: object
+          status:
+            description: KafkaOffsetReset status
+            nullable: true
+            properties:
+              completionTime:
+                description: Completion time
+                format: date-time
+                nullable: true
+                type: string
+              conditions:
+                description: Status conditions
+                items:
+                  description: Status condition
+                  properties:
+                    lastTransitionTime:
+                      description: Last transition time
+                      format: date-time
+                      type: string
+                    message:
+                      description: Human-readable message
+                      nullable: true
+                      type: string
+                    reason:
+                      description: Reason for the condition
+                      nullable: true
+                      type: string
+                    status:
+                      description: Status (True, False, Unknown)
+                      type: string
+                    type:
+                      description: Condition type
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - status
+                  - type
+                  type: object
+                type: array
+              duration:
+                description: Duration (human-readable)
+                nullable: true
+                type: string
+              groupResults:
+                description: Per-group results
+                items:
+                  description: Per-group reset result
+                  properties:
+                    error:
+                      description: Error message if failed
+                      nullable: true
+                      type: string
+                    groupId:
+                      description: Consumer group ID
+                      type: string
+                    partitionsReset:
+                      description: Number of partitions reset
+                      format: uint
+                      minimum: 0.0
+                      nullable: true
+                      type: integer
+                    success:
+                      description: Success status
+                      type: boolean
+                  required:
+                  - groupId
+                  - success
+                  type: object
+                type: array
+              groupsFailed:
+                description: Groups that failed
+                format: uint
+                minimum: 0.0
+                nullable: true
+                type: integer
+              groupsReset:
+                description: Groups successfully reset
+                format: uint
+                minimum: 0.0
+                nullable: true
+                type: integer
+              groupsTotal:
+                description: Total groups to reset
+                format: uint
+                minimum: 0.0
+                nullable: true
+                type: integer
+              message:
+                description: Human-readable message
+                nullable: true
+                type: string
+              observedGeneration:
+                description: Observed generation
+                format: int64
+                nullable: true
+                type: integer
+              phase:
+                description: Current phase (Pending, Running, Completed, Failed, PartiallyCompleted)
+                nullable: true
+                type: string
+              snapshotId:
+                description: Snapshot ID for rollback
+                nullable: true
+                type: string
+              snapshotPath:
+                description: Snapshot path
+                nullable: true
+                type: string
+              startTime:
+                description: Start time
+                format: date-time
+                nullable: true
+                type: string
+            type: object
+        required:
+        - spec
+        title: KafkaOffsetReset
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: kafkaoffsetrollbacks.kafka.oso.sh
+spec:
+  group: kafka.oso.sh
+  names:
+    categories: []
+    kind: KafkaOffsetRollback
+    plural: kafkaoffsetrollbacks
+    shortNames:
+    - korb
+    singular: kafkaoffsetrollback
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.groupsRolledBack
+      name: Groups
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for KafkaOffsetRollbackSpec via `CustomResource`
+        properties:
+          spec:
+            description: KafkaOffsetRollback resource specification
+            properties:
+              consumerGroups:
+                default: []
+                description: Consumer groups to rollback (empty = all groups in snapshot)
+                items:
+                  type: string
+                type: array
+              dryRun:
+                default: false
+                description: Dry run mode
+                type: boolean
+              kafkaCluster:
+                description: Target Kafka cluster
+                properties:
+                  bootstrapServers:
+                    description: Bootstrap servers
+                    items:
+                      type: string
+                    type: array
+                  saslSecret:
+                    description: SASL configuration secret reference
+                    nullable: true
+                    properties:
+                      mechanism:
+                        description: SASL mechanism (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)
+                        type: string
+                      name:
+                        description: Secret name
+                        type: string
+                      passwordKey:
+                        default: password
+                        description: Password key in secret
+                        type: string
+                      usernameKey:
+                        default: username
+                        description: Username key in secret
+                        type: string
+                    required:
+                    - mechanism
+                    - name
+                    type: object
+                  securityProtocol:
+                    default: PLAINTEXT
+                    description: Security protocol (PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL)
+                    type: string
+                  tlsSecret:
+                    description: TLS configuration secret reference
+                    nullable: true
+                    properties:
+                      caKey:
+                        default: ca.crt
+                        description: CA certificate key in secret
+                        type: string
+                      certKey:
+                        description: Client certificate key in secret
+                        nullable: true
+                        type: string
+                      keyKey:
+                        description: Client key key in secret
+                        nullable: true
+                        type: string
+                      name:
+                        description: Secret name
+                        type: string
+                    required:
+                    - name
+                    type: object
+                required:
+                - bootstrapServers
+                type: object
+              snapshotRef:
+                description: Reference to snapshot to restore from
+                properties:
+                  name:
+                    description: Snapshot name/ID
+                    type: string
+                  offsetResetRef:
+                    description: Reference to KafkaOffsetReset that created the snapshot
+                    nullable: true
+                    type: string
+                  path:
+                    description: Path to snapshot file within PVC
+                    nullable: true
+                    type: string
+                  pvcName:
+                    description: PVC containing the snapshot
+                    nullable: true
+                    type: string
+                  restoreRef:
+                    description: Reference to KafkaRestore that created the snapshot
+                    nullable: true
+                    type: string
+                required:
+                - name
+                type: object
+              verifyAfterRollback:
+                default: true
+                description: Verify after rollback
+                type: boolean
+            required:
+            - kafkaCluster
+            - snapshotRef
+            type: object
+          status:
+            description: KafkaOffsetRollback status
+            nullable: true
+            properties:
+              completionTime:
+                description: Completion time
+                format: date-time
+                nullable: true
+                type: string
+              conditions:
+                description: Status conditions
+                items:
+                  description: Status condition
+                  properties:
+                    lastTransitionTime:
+                      description: Last transition time
+                      format: date-time
+                      type: string
+                    message:
+                      description: Human-readable message
+                      nullable: true
+                      type: string
+                    reason:
+                      description: Reason for the condition
+                      nullable: true
+                      type: string
+                    status:
+                      description: Status (True, False, Unknown)
+                      type: string
+                    type:
+                      description: Condition type
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - status
+                  - type
+                  type: object
+                type: array
+              groupsFailed:
+                description: Groups that failed
+                format: uint
+                minimum: 0.0
+                nullable: true
+                type: integer
+              groupsRolledBack:
+                description: Groups successfully rolled back
+                format: uint
+                minimum: 0.0
+                nullable: true
+                type: integer
+              message:
+                description: Human-readable message
+                nullable: true
+                type: string
+              observedGeneration:
+                description: Observed generation
+                format: int64
+                nullable: true
+                type: integer
+              phase:
+                description: Current phase (Pending, Running, Completed, Failed, PartiallyCompleted)
+                nullable: true
+                type: string
+              startTime:
+                description: Start time
+                format: date-time
+                nullable: true
+                type: string
+              verification:
+                description: Verification result
+                nullable: true
+                properties:
+                  allMatched:
+                    description: Whether all offsets matched expected values
+                    type: boolean
+                  matchedGroups:
+                    description: Groups that matched
+                    format: uint
+                    minimum: 0.0
+                    type: integer
+                  mismatchedGroups:
+                    description: Groups with mismatches
+                    items:
+                      type: string
+                    type: array
+                  totalGroups:
+                    description: Total groups verified
+                    format: uint
+                    minimum: 0.0
+                    type: integer
+                required:
+                - allMatched
+                - matchedGroups
+                - totalGroups
+                type: object
+            type: object
+        required:
+        - spec
+        title: KafkaOffsetRollback
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
