@@ -14,7 +14,7 @@ The operator is now watching for the following custom resources:
 
 To create a backup, apply a KafkaBackup resource:
 
-  apiVersion: kafka-backup.oso.sh/v1alpha1
+  apiVersion: kafka.oso.sh/v1alpha1
   kind: KafkaBackup
   metadata:
     name: my-backup
