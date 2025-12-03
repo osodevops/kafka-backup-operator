@@ -5,16 +5,22 @@
 use std::time::Duration;
 
 use chrono::Utc;
-use kafka_backup_core::BulkOffsetResetConfig;
+use kafka_backup_core::config::KafkaConfig as CoreKafkaConfig;
+use kafka_backup_core::config::{SecurityConfig, SecurityProtocol, SaslMechanism, TopicSelection};
+use kafka_backup_core::kafka::KafkaClient;
+use kafka_backup_core::kafka::consumer_groups::{
+    fetch_offsets, commit_offsets, offsets_for_times, CommittedOffset,
+};
+use kafka_backup_core::{snapshot_current_offsets, BulkOffsetResetConfig};
 use kube::{
     api::{Patch, PatchParams},
     runtime::controller::Action,
     Api, Client, ResourceExt,
 };
 use serde_json::json;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
-use crate::adapters::build_kafka_config;
+use crate::adapters::{build_kafka_config, TlsFileManager, default_tls_dir};
 use crate::crd::{KafkaOffsetReset, OffsetResetStrategy};
 use crate::error::{Error, Result};
 use crate::metrics;
@@ -72,8 +78,8 @@ pub fn validate(reset: &KafkaOffsetReset) -> Result<()> {
 /// Monitor offset reset progress
 pub async fn monitor_progress(
     reset: &KafkaOffsetReset,
-    client: &Client,
-    namespace: &str,
+    _client: &Client,
+    _namespace: &str,
 ) -> Result<Action> {
     let name = reset.name_any();
 
@@ -269,33 +275,65 @@ async fn execute_reset_internal(
         "Building offset reset configuration"
     );
 
-    // Build resolved Kafka configuration
+    // Build resolved Kafka configuration from operator config
     let resolved_kafka = build_kafka_config(&reset.spec.kafka_cluster, client, namespace).await?;
 
-    // Create snapshot if requested
-    let snapshot_id = if reset.spec.snapshot_before_reset {
-        info!(name = %name, "Creating pre-reset offset snapshot");
-
-        // Note: Creating a snapshot requires a KafkaClient from kafka-backup-core
-        // This is a structural placeholder - full implementation requires
-        // the kafka-backup-core KafkaClient to be created from our config
-        let snapshot_id = format!("snapshot-{}", Utc::now().format("%Y%m%d-%H%M%S"));
-
-        // TODO: When kafka-backup-core exposes KafkaClient creation:
-        // let kafka_client = create_kafka_client(&resolved_kafka).await?;
-        // let snapshot = snapshot_current_offsets(
-        //     &kafka_client,
-        //     &reset.spec.consumer_groups,
-        //     bootstrap_servers.clone(),
-        // ).await.map_err(|e| Error::Core(format!("Failed to create snapshot: {}", e)))?;
-
-        Some(snapshot_id)
+    // Create TLS file manager if TLS is configured
+    let _tls_manager = if let Some(tls) = &resolved_kafka.tls {
+        let tls_dir = default_tls_dir(&name);
+        Some(TlsFileManager::new(tls, &tls_dir)?)
     } else {
         None
     };
 
+    // Build kafka-backup-core KafkaConfig
+    let security_config = build_core_security_config(&resolved_kafka, _tls_manager.as_ref());
+    let core_kafka_config = CoreKafkaConfig {
+        bootstrap_servers: bootstrap_servers.clone(),
+        security: security_config,
+        topics: TopicSelection {
+            include: reset.spec.topics.clone(),
+            exclude: vec![],
+        },
+    };
+
+    // Create and connect KafkaClient
+    let kafka_client = KafkaClient::new(core_kafka_config);
+    kafka_client.connect().await
+        .map_err(|e| Error::Core(format!("Failed to connect to Kafka: {}", e)))?;
+
+    info!(name = %name, "Connected to Kafka cluster");
+
+    // Create snapshot if requested
+    let (snapshot_id, snapshot_path) = if reset.spec.snapshot_before_reset {
+        info!(name = %name, "Creating pre-reset offset snapshot");
+
+        match snapshot_current_offsets(
+            &kafka_client,
+            &reset.spec.consumer_groups,
+            bootstrap_servers.clone(),
+        ).await {
+            Ok(snapshot) => {
+                let snapshot_id = snapshot.snapshot_id.clone();
+                info!(
+                    name = %name,
+                    snapshot_id = %snapshot_id,
+                    groups = snapshot.group_offsets.len(),
+                    "Created offset snapshot"
+                );
+                (Some(snapshot_id), None)
+            }
+            Err(e) => {
+                warn!(name = %name, error = %e, "Failed to create snapshot, continuing without");
+                (None, None)
+            }
+        }
+    } else {
+        (None, None)
+    };
+
     // Build bulk reset configuration
-    let bulk_config = BulkOffsetResetConfig {
+    let _bulk_config = BulkOffsetResetConfig {
         max_concurrent_requests: reset.spec.parallelism,
         max_retry_attempts: 3,
         retry_base_delay_ms: 100,
@@ -309,50 +347,39 @@ async fn execute_reset_internal(
         reset.spec.parallelism
     );
 
-    // Note: Full implementation requires kafka-backup-core KafkaClient
-    // The BulkOffsetReset requires offset mappings from a restore operation
-    // For standalone offset reset (to-timestamp, to-earliest, etc.), we need
-    // to use OffsetResetExecutor with a generated plan
-
-    // For now, track results manually
+    // Track results
     let mut groups_reset = 0u32;
-    let groups_failed = 0u32;
+    let mut groups_failed = 0u32;
     let mut group_results = Vec::new();
 
     // Process each consumer group
     for group_id in &reset.spec.consumer_groups {
         info!(name = %name, group = %group_id, "Processing consumer group");
 
-        // TODO: When kafka-backup-core exposes the reset functionality:
-        // match reset_consumer_group(&kafka_client, group_id, &reset.spec).await {
-        //     Ok(result) => {
-        //         groups_reset += 1;
-        //         group_results.push(json!({
-        //             "groupId": group_id,
-        //             "status": "success",
-        //             "partitionsReset": result.partitions_reset
-        //         }));
-        //     }
-        //     Err(e) => {
-        //         groups_failed += 1;
-        //         group_results.push(json!({
-        //             "groupId": group_id,
-        //             "status": "failed",
-        //             "error": e.to_string()
-        //         }));
-        //         if !reset.spec.continue_on_error {
-        //             return Err(Error::Core(format!("Failed to reset group {}: {}", group_id, e)));
-        //         }
-        //     }
-        // }
+        match reset_consumer_group(&kafka_client, group_id, reset).await {
+            Ok(partitions_reset) => {
+                groups_reset += 1;
+                group_results.push(json!({
+                    "groupId": group_id,
+                    "status": "success",
+                    "partitionsReset": partitions_reset
+                }));
+                info!(name = %name, group = %group_id, partitions = partitions_reset, "Group reset successful");
+            }
+            Err(e) => {
+                groups_failed += 1;
+                group_results.push(json!({
+                    "groupId": group_id,
+                    "status": "failed",
+                    "error": e.to_string()
+                }));
+                error!(name = %name, group = %group_id, error = %e, "Group reset failed");
 
-        // Placeholder: mark as processed
-        groups_reset += 1;
-        group_results.push(json!({
-            "groupId": group_id,
-            "status": "success",
-            "partitionsReset": 0
-        }));
+                if !reset.spec.continue_on_error {
+                    return Err(Error::Core(format!("Failed to reset group {}: {}", group_id, e)));
+                }
+            }
+        }
     }
 
     info!(
@@ -366,9 +393,153 @@ async fn execute_reset_internal(
         groups_reset,
         groups_failed,
         snapshot_id,
-        snapshot_path: None,
+        snapshot_path,
         group_results,
     })
+}
+
+/// Build kafka-backup-core SecurityConfig from resolved operator config
+fn build_core_security_config(
+    resolved: &crate::adapters::ResolvedKafkaConfig,
+    tls_manager: Option<&TlsFileManager>,
+) -> SecurityConfig {
+    let security_protocol = match resolved.security_protocol.to_uppercase().as_str() {
+        "PLAINTEXT" => SecurityProtocol::Plaintext,
+        "SSL" => SecurityProtocol::Ssl,
+        "SASL_PLAINTEXT" => SecurityProtocol::SaslPlaintext,
+        "SASL_SSL" => SecurityProtocol::SaslSsl,
+        _ => SecurityProtocol::Plaintext,
+    };
+
+    let (sasl_mechanism, sasl_username, sasl_password) = match &resolved.sasl {
+        Some(sasl) => {
+            let mechanism = match sasl.mechanism.to_uppercase().as_str() {
+                "PLAIN" => Some(SaslMechanism::Plain),
+                "SCRAM-SHA-256" => Some(SaslMechanism::ScramSha256),
+                "SCRAM-SHA-512" => Some(SaslMechanism::ScramSha512),
+                _ => None,
+            };
+            (mechanism, Some(sasl.username.clone()), Some(sasl.password.clone()))
+        }
+        None => (None, None, None),
+    };
+
+    let (ssl_ca_location, ssl_certificate_location, ssl_key_location) = match tls_manager {
+        Some(mgr) => (
+            Some(mgr.ca_location()),
+            mgr.certificate_location(),
+            mgr.key_location(),
+        ),
+        None => (None, None, None),
+    };
+
+    SecurityConfig {
+        security_protocol,
+        sasl_mechanism,
+        sasl_username,
+        sasl_password,
+        ssl_ca_location,
+        ssl_certificate_location,
+        ssl_key_location,
+    }
+}
+
+/// Reset offsets for a single consumer group
+async fn reset_consumer_group(
+    kafka_client: &KafkaClient,
+    group_id: &str,
+    reset: &KafkaOffsetReset,
+) -> std::result::Result<u32, kafka_backup_core::Error> {
+    // First, fetch current offsets to know which partitions to reset
+    // Pass None for topics filter to get all offsets for this group
+    let topics_filter: Option<&[String]> = if reset.spec.topics.is_empty() {
+        None
+    } else {
+        Some(&reset.spec.topics)
+    };
+    let current_offsets = fetch_offsets(kafka_client, group_id, topics_filter).await?;
+
+    if current_offsets.is_empty() {
+        info!(group = %group_id, "No committed offsets found for group");
+        return Ok(0);
+    }
+
+    // Calculate target offsets based on strategy
+    let target_offsets = calculate_target_offsets(
+        kafka_client,
+        &current_offsets,
+        &reset.spec.reset_strategy,
+        reset.spec.reset_timestamp,
+        reset.spec.reset_offset,
+    ).await?;
+
+    // Convert to tuple format expected by commit_offsets: (topic, partition, offset, metadata)
+    let offsets_tuples: Vec<(String, i32, i64, Option<String>)> = target_offsets
+        .iter()
+        .map(|o| (o.topic.clone(), o.partition, o.offset, o.metadata.clone()))
+        .collect();
+
+    // Commit the new offsets
+    let partitions_reset = offsets_tuples.len() as u32;
+    commit_offsets(kafka_client, group_id, &offsets_tuples).await?;
+
+    Ok(partitions_reset)
+}
+
+/// Calculate target offsets based on reset strategy
+async fn calculate_target_offsets(
+    kafka_client: &KafkaClient,
+    current_offsets: &[CommittedOffset],
+    strategy: &OffsetResetStrategy,
+    reset_timestamp: Option<i64>,
+    reset_offset: Option<i64>,
+) -> std::result::Result<Vec<CommittedOffset>, kafka_backup_core::Error> {
+    let mut target_offsets = Vec::new();
+
+    for offset in current_offsets {
+        let new_offset = match strategy {
+            OffsetResetStrategy::ToEarliest => {
+                // Get earliest offset for partition
+                let (earliest, _) = kafka_client.get_offsets(&offset.topic, offset.partition).await?;
+                earliest
+            }
+            OffsetResetStrategy::ToLatest => {
+                // Get latest offset for partition
+                let (_, latest) = kafka_client.get_offsets(&offset.topic, offset.partition).await?;
+                latest
+            }
+            OffsetResetStrategy::ToTimestamp => {
+                // Get offset for timestamp
+                // offsets_for_times takes &[(String, i32, i64)] - (topic, partition, timestamp)
+                let timestamp = reset_timestamp.unwrap_or(0);
+                let requests = vec![(offset.topic.clone(), offset.partition, timestamp)];
+                let timestamp_offsets = offsets_for_times(kafka_client, &requests).await?;
+                timestamp_offsets
+                    .first()
+                    .filter(|to| to.error_code == 0)
+                    .map(|to| to.offset)
+                    .unwrap_or(offset.offset)
+            }
+            OffsetResetStrategy::ToOffset => {
+                // Use specified offset directly
+                reset_offset.unwrap_or(offset.offset)
+            }
+            OffsetResetStrategy::FromMapping => {
+                // For mapping-based reset, keep current offset (handled separately)
+                offset.offset
+            }
+        };
+
+        target_offsets.push(CommittedOffset {
+            topic: offset.topic.clone(),
+            partition: offset.partition,
+            offset: new_offset,
+            metadata: offset.metadata.clone(),
+            error_code: 0, // Success
+        });
+    }
+
+    Ok(target_offsets)
 }
 
 /// Update status to Failed

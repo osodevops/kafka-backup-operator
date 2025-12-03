@@ -13,6 +13,7 @@ use kafka_backup_core::config::{
 use super::backup_config::{ResolvedBackupConfig, ResolvedKafkaConfig};
 use super::restore_config::ResolvedRestoreConfig;
 use super::storage_config::ResolvedStorage;
+use super::tls_files::TlsFileManager;
 
 /// Convert resolved backup configuration to kafka-backup-core Config
 pub fn to_core_backup_config(
@@ -79,6 +80,14 @@ fn to_core_kafka_config(resolved: &ResolvedKafkaConfig, topics: &[String]) -> Ka
 
 /// Convert security configuration
 fn to_core_security_config(resolved: &ResolvedKafkaConfig) -> SecurityConfig {
+    to_core_security_config_with_tls(resolved, None)
+}
+
+/// Convert security configuration with optional pre-created TLS files
+pub fn to_core_security_config_with_tls(
+    resolved: &ResolvedKafkaConfig,
+    tls_manager: Option<&TlsFileManager>,
+) -> SecurityConfig {
     let security_protocol = match resolved.security_protocol.to_uppercase().as_str() {
         "PLAINTEXT" => SecurityProtocol::Plaintext,
         "SSL" => SecurityProtocol::Ssl,
@@ -100,14 +109,13 @@ fn to_core_security_config(resolved: &ResolvedKafkaConfig) -> SecurityConfig {
         None => (None, None, None),
     };
 
-    // For TLS, we'd need to write certs to temp files - for now, use paths if available
-    // In production, these would be written to a temp directory and paths provided
-    let (ssl_ca_location, ssl_certificate_location, ssl_key_location) = match &resolved.tls {
-        Some(_tls) => {
-            // TODO: Write TLS credentials to temp files and return paths
-            // For now, assume TLS certs are mounted at standard locations
-            (None, None, None)
-        }
+    // Use TLS file manager if provided, otherwise no TLS
+    let (ssl_ca_location, ssl_certificate_location, ssl_key_location) = match tls_manager {
+        Some(mgr) => (
+            Some(mgr.ca_location()),
+            mgr.certificate_location(),
+            mgr.key_location(),
+        ),
         None => (None, None, None),
     };
 

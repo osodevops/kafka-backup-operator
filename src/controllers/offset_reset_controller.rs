@@ -122,7 +122,7 @@ async fn apply(reset: Arc<KafkaOffsetReset>, ctx: Arc<Context>) -> Result<Action
 }
 
 /// Cleanup when resource is being deleted
-async fn cleanup(reset: Arc<KafkaOffsetReset>, ctx: Arc<Context>) -> Result<Action> {
+async fn cleanup(reset: Arc<KafkaOffsetReset>, _ctx: Arc<Context>) -> Result<Action> {
     let name = reset.name_any();
     info!(name = %name, "Cleaning up KafkaOffsetReset");
 

@@ -6,16 +6,19 @@
 use std::time::Duration;
 
 use chrono::Utc;
-use kafka_backup_core::OffsetSnapshot;
+use kafka_backup_core::config::KafkaConfig as CoreKafkaConfig;
+use kafka_backup_core::config::{SecurityConfig, SecurityProtocol, SaslMechanism, TopicSelection};
+use kafka_backup_core::kafka::KafkaClient;
+use kafka_backup_core::{rollback_offset_reset, verify_rollback, OffsetSnapshot};
 use kube::{
     api::{Patch, PatchParams},
     runtime::controller::Action,
     Api, Client, ResourceExt,
 };
 use serde_json::json;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
-use crate::adapters::build_kafka_config;
+use crate::adapters::{build_kafka_config, TlsFileManager, default_tls_dir};
 use crate::crd::KafkaOffsetRollback;
 use crate::error::{Error, Result};
 
@@ -43,8 +46,8 @@ pub fn validate(rollback: &KafkaOffsetRollback) -> Result<()> {
 /// Monitor rollback progress
 pub async fn monitor_progress(
     rollback: &KafkaOffsetRollback,
-    client: &Client,
-    namespace: &str,
+    _client: &Client,
+    _namespace: &str,
 ) -> Result<Action> {
     let name = rollback.name_any();
 
@@ -191,6 +194,7 @@ async fn execute_rollback_internal(
     namespace: &str,
 ) -> Result<RollbackResult> {
     let name = rollback.name_any();
+    let bootstrap_servers = rollback.spec.kafka_cluster.bootstrap_servers.clone();
 
     info!(
         name = %name,
@@ -200,6 +204,32 @@ async fn execute_rollback_internal(
 
     // Build resolved Kafka configuration
     let resolved_kafka = build_kafka_config(&rollback.spec.kafka_cluster, client, namespace).await?;
+
+    // Create TLS file manager if TLS is configured
+    let _tls_manager = if let Some(tls) = &resolved_kafka.tls {
+        let tls_dir = default_tls_dir(&name);
+        Some(TlsFileManager::new(tls, &tls_dir)?)
+    } else {
+        None
+    };
+
+    // Build kafka-backup-core KafkaConfig
+    let security_config = build_core_security_config(&resolved_kafka, _tls_manager.as_ref());
+    let core_kafka_config = CoreKafkaConfig {
+        bootstrap_servers: bootstrap_servers.clone(),
+        security: security_config,
+        topics: TopicSelection {
+            include: vec![],
+            exclude: vec![],
+        },
+    };
+
+    // Create and connect KafkaClient
+    let kafka_client = KafkaClient::new(core_kafka_config);
+    kafka_client.connect().await
+        .map_err(|e| Error::Core(format!("Failed to connect to Kafka: {}", e)))?;
+
+    info!(name = %name, "Connected to Kafka cluster");
 
     // 1. Load snapshot from storage
     let snapshot_path = rollback.spec.snapshot_ref.path.as_ref()
@@ -231,38 +261,37 @@ async fn execute_rollback_internal(
         "Loaded snapshot, executing rollback"
     );
 
-    // 2. Apply rollback
-    // Note: Full implementation requires kafka-backup-core KafkaClient
-    // The rollback_offset_reset function requires a KafkaClient instance
+    // 2. Apply rollback using kafka-backup-core
+    let rollback_result = rollback_offset_reset(&kafka_client, &snapshot)
+        .await
+        .map_err(|e| Error::Rollback(format!("Rollback failed: {}", e)))?;
 
-    // TODO: When kafka-backup-core exposes KafkaClient creation:
-    // let kafka_client = create_kafka_client(&resolved_kafka).await?;
-    // let rollback_result = rollback_offset_reset(&kafka_client, &snapshot)
-    //     .await
-    //     .map_err(|e| Error::Rollback(format!("Rollback failed: {}", e)))?;
+    let groups_rolled_back = rollback_result.groups_rolled_back as u32;
 
-    let groups_rolled_back = snapshot.group_offsets.len() as u32;
+    info!(
+        name = %name,
+        groups_rolled_back = groups_rolled_back,
+        status = ?rollback_result.status,
+        "Rollback operation completed"
+    );
 
     // 3. Verify if requested
     let verified = if rollback.spec.verify_after_rollback {
         info!(name = %name, "Verifying rollback");
 
-        // TODO: When kafka-backup-core exposes KafkaClient creation:
-        // let verification = verify_rollback(&kafka_client, &snapshot)
-        //     .await
-        //     .map_err(|e| Error::Rollback(format!("Verification failed: {}", e)))?;
-        //
-        // if !verification.verified {
-        //     warn!(
-        //         name = %name,
-        //         mismatched = verification.groups_mismatched.len(),
-        //         "Rollback verification found mismatches"
-        //     );
-        // }
-        // verification.verified
+        let verification = verify_rollback(&kafka_client, &snapshot)
+            .await
+            .map_err(|e| Error::Rollback(format!("Verification failed: {}", e)))?;
 
-        // Placeholder: assume verified for now
-        true
+        if !verification.verified {
+            warn!(
+                name = %name,
+                mismatched = verification.groups_mismatched.len(),
+                "Rollback verification found mismatches"
+            );
+        }
+
+        verification.verified
     } else {
         false
     };
@@ -278,6 +307,52 @@ async fn execute_rollback_internal(
         groups_rolled_back,
         verified,
     })
+}
+
+/// Build kafka-backup-core SecurityConfig from resolved operator config
+fn build_core_security_config(
+    resolved: &crate::adapters::ResolvedKafkaConfig,
+    tls_manager: Option<&TlsFileManager>,
+) -> SecurityConfig {
+    let security_protocol = match resolved.security_protocol.to_uppercase().as_str() {
+        "PLAINTEXT" => SecurityProtocol::Plaintext,
+        "SSL" => SecurityProtocol::Ssl,
+        "SASL_PLAINTEXT" => SecurityProtocol::SaslPlaintext,
+        "SASL_SSL" => SecurityProtocol::SaslSsl,
+        _ => SecurityProtocol::Plaintext,
+    };
+
+    let (sasl_mechanism, sasl_username, sasl_password) = match &resolved.sasl {
+        Some(sasl) => {
+            let mechanism = match sasl.mechanism.to_uppercase().as_str() {
+                "PLAIN" => Some(SaslMechanism::Plain),
+                "SCRAM-SHA-256" => Some(SaslMechanism::ScramSha256),
+                "SCRAM-SHA-512" => Some(SaslMechanism::ScramSha512),
+                _ => None,
+            };
+            (mechanism, Some(sasl.username.clone()), Some(sasl.password.clone()))
+        }
+        None => (None, None, None),
+    };
+
+    let (ssl_ca_location, ssl_certificate_location, ssl_key_location) = match tls_manager {
+        Some(mgr) => (
+            Some(mgr.ca_location()),
+            mgr.certificate_location(),
+            mgr.key_location(),
+        ),
+        None => (None, None, None),
+    };
+
+    SecurityConfig {
+        security_protocol,
+        sasl_mechanism,
+        sasl_username,
+        sasl_password,
+        ssl_ca_location,
+        ssl_certificate_location,
+        ssl_key_location,
+    }
 }
 
 /// Update status to Failed

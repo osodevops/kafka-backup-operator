@@ -125,7 +125,7 @@ async fn apply(restore: Arc<KafkaRestore>, ctx: Arc<Context>) -> Result<Action> 
 }
 
 /// Cleanup when resource is being deleted
-async fn cleanup(restore: Arc<KafkaRestore>, ctx: Arc<Context>) -> Result<Action> {
+async fn cleanup(restore: Arc<KafkaRestore>, _ctx: Arc<Context>) -> Result<Action> {
     let name = restore.name_any();
     info!(name = %name, "Cleaning up KafkaRestore");
 

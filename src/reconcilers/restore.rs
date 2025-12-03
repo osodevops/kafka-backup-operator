@@ -59,8 +59,8 @@ pub fn validate(restore: &KafkaRestore) -> Result<()> {
 /// Monitor restore progress
 pub async fn monitor_progress(
     restore: &KafkaRestore,
-    client: &Client,
-    namespace: &str,
+    _client: &Client,
+    _namespace: &str,
 ) -> Result<Action> {
     let name = restore.name_any();
 
@@ -309,7 +309,7 @@ async fn execute_restore_internal(
 async fn resolve_backup_source(
     source: &ResolvedBackupSource,
     client: &Client,
-    namespace: &str,
+    _namespace: &str,
 ) -> Result<(String, ResolvedStorage)> {
     match source {
         ResolvedBackupSource::Storage(storage) => {

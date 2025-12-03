@@ -131,7 +131,7 @@ async fn apply(rollback: Arc<KafkaOffsetRollback>, ctx: Arc<Context>) -> Result<
 }
 
 /// Cleanup when resource is being deleted
-async fn cleanup(rollback: Arc<KafkaOffsetRollback>, ctx: Arc<Context>) -> Result<Action> {
+async fn cleanup(rollback: Arc<KafkaOffsetRollback>, _ctx: Arc<Context>) -> Result<Action> {
     let name = rollback.name_any();
     info!(name = %name, "Cleaning up KafkaOffsetRollback");
 

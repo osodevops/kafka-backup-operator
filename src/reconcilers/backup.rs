@@ -160,16 +160,16 @@ fn should_run_backup(backup: &KafkaBackup, schedule: &Schedule, now: DateTime<Ut
         None => true, // Never backed up
         Some(last) => {
             // Get the most recent scheduled time before now
-            let mut prev_scheduled = None;
+            let mut _prev_scheduled = None;
             for scheduled in schedule.upcoming(Utc).take(10) {
                 if scheduled > now {
                     break;
                 }
-                prev_scheduled = Some(scheduled);
+                _prev_scheduled = Some(scheduled);
             }
 
             // Check using after() iterator for past times
-            if let Some(next) = schedule.upcoming(Utc).next() {
+            if let Some(_next) = schedule.upcoming(Utc).next() {
                 // If next scheduled time is in the future, check if we missed one
                 let interval = schedule
                     .upcoming(Utc)
