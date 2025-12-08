@@ -8,9 +8,9 @@ home: https://github.com/osodevops/kafka-backup-operator
 sources:
   - https://github.com/osodevops/kafka-backup-operator
 maintainers:
-  - name: OSO DevOps
+  - name: sionsmith
     email: dev@oso.sh
-    url: https://oso.sh
+    url: https://github.com/sionsmith
 keywords:
   - kafka
   - backup
