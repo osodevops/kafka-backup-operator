@@ -41,12 +41,21 @@ pub struct S3StorageConfig {
     pub secret_access_key: String,
 }
 
+/// Azure authentication method
+#[derive(Debug, Clone)]
+pub enum AzureAuthMethod {
+    /// Account key authentication (from Kubernetes secret)
+    AccountKey(String),
+    /// Workload Identity authentication (uses pod's federated identity token)
+    WorkloadIdentity,
+}
+
 /// Azure Blob storage configuration with resolved credentials
 #[derive(Debug, Clone)]
 pub struct AzureStorageConfig {
     pub container: String,
     pub account_name: String,
-    pub account_key: String,
+    pub auth: AzureAuthMethod,
     pub prefix: Option<String>,
 }
 
@@ -123,19 +132,37 @@ async fn build_azure_storage(
 ) -> Result<ResolvedStorage> {
     let azure = azure.ok_or_else(|| Error::config("Azure configuration is required for azure storage type"))?;
 
-    // Fetch credentials from Kubernetes secret
-    let account_key = get_azure_credentials(
-        client,
-        namespace,
-        &azure.credentials_secret.name,
-        &azure.credentials_secret.account_key_key,
-    )
-    .await?;
+    // Determine authentication method
+    let auth = if azure.use_workload_identity {
+        // Use Workload Identity - credentials are automatically provided via environment variables
+        // AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_FEDERATED_TOKEN_FILE, AZURE_AUTHORITY_HOST
+        tracing::info!(
+            account_name = %azure.account_name,
+            container = %azure.container,
+            "Using Azure Workload Identity for authentication"
+        );
+        AzureAuthMethod::WorkloadIdentity
+    } else {
+        // Use account key from Kubernetes secret
+        let creds = azure.credentials_secret.as_ref().ok_or_else(|| {
+            Error::config("Azure credentials_secret is required when use_workload_identity is false")
+        })?;
+
+        let account_key = get_azure_credentials(
+            client,
+            namespace,
+            &creds.name,
+            &creds.account_key_key,
+        )
+        .await?;
+
+        AzureAuthMethod::AccountKey(account_key)
+    };
 
     Ok(ResolvedStorage::Azure(AzureStorageConfig {
         container: azure.container.clone(),
         account_name: azure.account_name.clone(),
-        account_key,
+        auth,
         prefix: azure.prefix.clone(),
     }))
 }

@@ -19,6 +19,9 @@ spec:
       labels:
         {{- include "kafka-backup-operator.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: controller
+        {{- if .Values.azureWorkloadIdentity.enabled }}
+        azure.workload.identity/use: "true"
+        {{- end }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:

@@ -273,8 +273,15 @@ pub struct AzureStorageSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prefix: Option<String>,
 
-    /// Credentials secret reference
-    pub credentials_secret: AzureCredentialsRef,
+    /// Use Azure Workload Identity for authentication
+    /// When true, the operator uses the pod's federated identity token
+    /// to authenticate with Azure Blob Storage (requires AKS with Workload Identity enabled)
+    #[serde(default)]
+    pub use_workload_identity: bool,
+
+    /// Credentials secret reference (optional when using Workload Identity)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credentials_secret: Option<AzureCredentialsRef>,
 }
 
 /// Azure credentials secret reference

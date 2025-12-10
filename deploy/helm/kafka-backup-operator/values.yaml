@@ -17,10 +17,22 @@ serviceAccount:
   # Specifies whether a service account should be created
   create: true
   # Annotations to add to the service account
+  # For Azure Workload Identity, add:
+  #   azure.workload.identity/client-id: "<managed-identity-client-id>"
   annotations: {}
   # The name of the service account to use.
   # If not set and create is true, a name is generated using the fullname template
   name: ""
+
+# Azure Workload Identity configuration
+# When enabled, the operator can authenticate to Azure services using federated identity tokens
+# instead of storing credentials in Kubernetes secrets
+azureWorkloadIdentity:
+  # Enable Azure Workload Identity support
+  enabled: false
+  # The client ID of the Azure Managed Identity
+  # This should match the identity federated with this service account
+  clientId: ""
 
 # Pod annotations
 podAnnotations:

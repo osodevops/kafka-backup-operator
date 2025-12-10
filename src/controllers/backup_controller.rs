@@ -60,7 +60,7 @@ pub async fn run(client: Client, context: Arc<Context>) {
 }
 
 /// Main reconciliation function
-#[instrument(skip(ctx), fields(name = %obj.name_any(), namespace = obj.namespace()))]
+#[instrument(skip(ctx, obj), fields(name = %obj.name_any(), namespace = obj.namespace()))]
 async fn reconcile(obj: Arc<KafkaBackup>, ctx: Arc<Context>) -> Result<Action> {
     let _timer = metrics::RECONCILE_DURATION
         .with_label_values(&["KafkaBackup"])

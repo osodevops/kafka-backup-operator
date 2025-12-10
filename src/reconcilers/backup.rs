@@ -6,6 +6,7 @@
 //! - Backup execution
 //! - Status updates
 
+use std::path::Path;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -18,9 +19,9 @@ use kube::{
 };
 use serde_json::json;
 use std::str::FromStr;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
-use crate::adapters::{build_backup_config, to_core_backup_config};
+use crate::adapters::{build_backup_config, to_core_backup_config, ResolvedStorage};
 use crate::crd::KafkaBackup;
 use crate::error::{Error, Result};
 use crate::metrics;
@@ -84,8 +85,14 @@ fn validate_storage(storage: &crate::crd::StorageSpec) -> Result<()> {
             }
         }
         "azure" => {
-            if storage.azure.is_none() {
-                return Err(Error::validation("Azure storage selected but azure configuration is missing"));
+            let azure = storage.azure.as_ref().ok_or_else(|| {
+                Error::validation("Azure storage selected but azure configuration is missing")
+            })?;
+            // Validate that either workload identity or credentials_secret is provided
+            if !azure.use_workload_identity && azure.credentials_secret.is_none() {
+                return Err(Error::validation(
+                    "Azure storage requires either use_workload_identity: true or credentials_secret to be configured"
+                ));
             }
         }
         "gcs" => {
@@ -326,7 +333,10 @@ async fn execute_backup_internal(
     // 1. Build resolved configuration from CRD spec using adapters
     let resolved_config = build_backup_config(backup, client, namespace).await?;
 
-    // 2. Convert to kafka-backup-core Config
+    // 2. Ensure storage directory exists before creating the backup engine
+    ensure_storage_directories(&resolved_config.storage)?;
+
+    // 3. Convert to kafka-backup-core Config
     let core_config = to_core_backup_config(&resolved_config, &backup_id)
         .map_err(|e| Error::Core(format!("Failed to build core config: {}", e)))?;
 
@@ -337,21 +347,38 @@ async fn execute_backup_internal(
         "Starting backup engine"
     );
 
-    // 3. Create the backup engine (async constructor)
+    // 4. Change working directory to storage path before creating engine
+    // The kafka-backup-core library creates SQLite offset database using relative path
+    // ./backup_id-offsets.db, so we need to ensure current directory is writable
+    let working_dir = get_storage_working_directory(&resolved_config.storage);
+    let original_dir = std::env::current_dir().ok();
+    if let Err(e) = std::env::set_current_dir(&working_dir) {
+        return Err(Error::Storage(format!(
+            "Failed to change working directory to '{}': {}",
+            working_dir.display(), e
+        )));
+    }
+    debug!(working_dir = %working_dir.display(), "Changed working directory for backup engine");
+
+    // 5. Create the backup engine (async constructor)
     let engine = BackupEngine::new(core_config)
         .await
         .map_err(|e| Error::Core(format!("Failed to create backup engine: {}", e)))?;
 
-    // 4. Get metrics handle for tracking progress
+    // 6. Get metrics handle for tracking progress
     let metrics_handle = engine.metrics();
 
-    // 5. Run the backup
-    engine
-        .run()
-        .await
-        .map_err(|e| Error::Core(format!("Backup execution failed: {}", e)))?;
+    // 7. Run the backup (must run in the same working directory as engine was created)
+    let run_result = engine.run().await;
 
-    // 6. Extract final metrics
+    // Restore original working directory after backup completes
+    if let Some(ref orig) = original_dir {
+        let _ = std::env::set_current_dir(orig);
+    }
+
+    run_result.map_err(|e| Error::Core(format!("Backup execution failed: {}", e)))?;
+
+    // 8. Extract final metrics
     let metrics_report = metrics_handle.report();
 
     info!(
@@ -438,4 +465,63 @@ pub async fn update_status_failed(
         .await?;
 
     Ok(())
+}
+
+/// Ensure storage directories exist before backup execution
+/// This prevents "unable to open database file" errors from the core library
+fn ensure_storage_directories(storage: &ResolvedStorage) -> Result<()> {
+    match storage {
+        ResolvedStorage::Local(local) => {
+            let path = Path::new(&local.path);
+            if !path.exists() {
+                debug!(path = %local.path, "Creating storage directory");
+                std::fs::create_dir_all(path).map_err(|e| {
+                    Error::Storage(format!(
+                        "Failed to create storage directory '{}': {}",
+                        local.path, e
+                    ))
+                })?;
+            }
+            // Also create subdirectories that kafka-backup-core expects
+            let metadata_path = path.join("metadata");
+            let segments_path = path.join("segments");
+
+            if !metadata_path.exists() {
+                debug!(path = ?metadata_path, "Creating metadata subdirectory");
+                std::fs::create_dir_all(&metadata_path).map_err(|e| {
+                    Error::Storage(format!(
+                        "Failed to create metadata directory: {}",
+                        e
+                    ))
+                })?;
+            }
+
+            if !segments_path.exists() {
+                debug!(path = ?segments_path, "Creating segments subdirectory");
+                std::fs::create_dir_all(&segments_path).map_err(|e| {
+                    Error::Storage(format!(
+                        "Failed to create segments directory: {}",
+                        e
+                    ))
+                })?;
+            }
+
+            info!(path = %local.path, "Storage directories ready");
+            Ok(())
+        }
+        // Cloud storage backends handle directory creation automatically
+        ResolvedStorage::S3(_) | ResolvedStorage::Azure(_) | ResolvedStorage::Gcs(_) => Ok(()),
+    }
+}
+
+/// Get the working directory path for the storage backend
+/// This is used to ensure the SQLite offset database is created in a writable location
+fn get_storage_working_directory(storage: &ResolvedStorage) -> std::path::PathBuf {
+    match storage {
+        ResolvedStorage::Local(local) => std::path::PathBuf::from(&local.path),
+        // For cloud storage, use /tmp as the working directory
+        ResolvedStorage::S3(_) | ResolvedStorage::Azure(_) | ResolvedStorage::Gcs(_) => {
+            std::path::PathBuf::from("/tmp")
+        }
+    }
 }

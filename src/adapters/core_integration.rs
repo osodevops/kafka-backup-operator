@@ -5,9 +5,9 @@
 use std::path::PathBuf;
 
 use kafka_backup_core::config::{
-    BackupOptions, CompressionType, Config, KafkaConfig, Mode, OffsetStrategy, RestoreOptions,
-    SaslMechanism, SecurityConfig, SecurityProtocol, StorageBackendType, StorageConfig,
-    TopicSelection,
+    BackupOptions, CompressionType, Config, KafkaConfig, Mode, OffsetStorageBackend,
+    OffsetStorageConfig, OffsetStrategy, RestoreOptions, SaslMechanism, SecurityConfig,
+    SecurityProtocol, StorageBackendType, StorageConfig, TopicSelection,
 };
 
 use super::backup_config::{ResolvedBackupConfig, ResolvedKafkaConfig};
@@ -24,6 +24,9 @@ pub fn to_core_backup_config(
     let storage_config = to_core_storage_config(&resolved.storage);
     let backup_options = to_core_backup_options(resolved);
 
+    // Build offset storage config with proper path inside the backup storage directory
+    let offset_storage = build_offset_storage_config(&resolved.storage, backup_id);
+
     let config = Config {
         mode: Mode::Backup,
         backup_id: backup_id.to_string(),
@@ -32,7 +35,7 @@ pub fn to_core_backup_config(
         storage: storage_config,
         backup: Some(backup_options),
         restore: None,
-        offset_storage: None,
+        offset_storage,
     };
 
     config.validate()?;
@@ -255,6 +258,52 @@ fn to_core_restore_options(resolved: &ResolvedRestoreConfig) -> RestoreOptions {
         consumer_groups: vec![],
         reset_consumer_offsets: false,
         offset_report: None,
+    }
+}
+
+/// Build offset storage configuration for tracking backup progress
+/// This ensures the SQLite database is created in a writable location within the backup storage
+fn build_offset_storage_config(
+    storage: &ResolvedStorage,
+    backup_id: &str,
+) -> Option<OffsetStorageConfig> {
+    match storage {
+        ResolvedStorage::Local(local) => {
+            // Create offset database path inside the backup storage directory
+            let db_path = PathBuf::from(&local.path).join(format!("{}-offsets.db", backup_id));
+            Some(OffsetStorageConfig {
+                backend: OffsetStorageBackend::Sqlite,
+                db_path,
+                s3_key: None,
+                sync_interval_secs: 60,
+            })
+        }
+        ResolvedStorage::S3(s3) => {
+            // For S3, use a local temp path but sync to S3
+            let db_path = PathBuf::from("/tmp").join(format!("{}-offsets.db", backup_id));
+            let s3_key = s3
+                .prefix
+                .as_ref()
+                .map(|p| format!("{}/{}/offsets.db", p, backup_id))
+                .or_else(|| Some(format!("{}/offsets.db", backup_id)));
+            Some(OffsetStorageConfig {
+                backend: OffsetStorageBackend::Sqlite,
+                db_path,
+                s3_key,
+                sync_interval_secs: 60,
+            })
+        }
+        // Azure and GCS would need similar handling
+        ResolvedStorage::Azure(_) | ResolvedStorage::Gcs(_) => {
+            // Use local temp path for now
+            let db_path = PathBuf::from("/tmp").join(format!("{}-offsets.db", backup_id));
+            Some(OffsetStorageConfig {
+                backend: OffsetStorageBackend::Sqlite,
+                db_path,
+                s3_key: None,
+                sync_interval_secs: 60,
+            })
+        }
     }
 }
 
