@@ -1,0 +1,203 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+
+      - name: Verify Cargo.toml version matches tag
+        run: |
+          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "Error: Cargo.toml version ($CARGO_VERSION) does not match tag version ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "Version verified: $CARGO_VERSION"
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run tests
+        run: cargo test --all-features
+
+      - name: Run clippy
+        run: cargo clippy --all-features -- -D warnings
+
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: [validate, test]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [validate, build-and-push]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate CRDs
+        run: |
+          cargo build --release --bin crdgen
+          ./target/release/crdgen > crds.yaml
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get the previous tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "First release - no previous tag found"
+            COMMITS=$(git log --pretty=format:"- %s" HEAD)
+          else
+            echo "Previous tag: $PREV_TAG"
+            COMMITS=$(git log --pretty=format:"- %s" ${PREV_TAG}..HEAD)
+          fi
+
+          # Write changelog to file (handles multi-line)
+          echo "$COMMITS" > changelog.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ needs.validate.outputs.version }}
+          body: |
+            ## Kafka Backup Operator v${{ needs.validate.outputs.version }}
+
+            ### Docker Images
+
+            ```bash
+            docker pull ghcr.io/osodevops/kafka-backup-operator:${{ needs.validate.outputs.version }}
+            ```
+
+            ### Installation
+
+            ```bash
+            # Add the Helm repository
+            helm repo add oso https://osodevops.github.io/helm-charts/
+            helm repo update
+
+            # Install the operator
+            helm install kafka-backup-operator oso/kafka-backup-operator \
+              --namespace kafka-backup-system \
+              --create-namespace \
+              --version ${{ needs.validate.outputs.version }}
+            ```
+
+            ### Changes
+
+            ${{ steps.changelog.outputs.commits }}
+
+            ### CRDs
+
+            The Custom Resource Definitions are attached to this release. Apply them with:
+
+            ```bash
+            kubectl apply -f crds.yaml
+            ```
+          files: |
+            crds.yaml
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sync-helm-chart:
+    name: Trigger Helm Chart Sync
+    runs-on: ubuntu-latest
+    needs: [create-release]
+    steps:
+      - name: Trigger helm-charts repo workflow
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.HELM_CHARTS_PAT }}
+          repository: osodevops/helm-charts
+          event-type: update-kafka-backup-operator
+          client-payload: '{"version": "${{ needs.validate.outputs.version }}"}'
+        continue-on-error: true
