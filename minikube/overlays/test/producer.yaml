@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-producer
+  namespace: confluent
+  labels:
+    app: kafka-producer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-producer
+  template:
+    metadata:
+      labels:
+        app: kafka-producer
+    spec:
+      containers:
+        - name: kafka-producer
+          image: confluentinc/cp-kafka:7.5.0
+          command:
+            - /bin/bash
+            - -c
+            - |
+              echo "Waiting for Kafka to be ready..."
+              sleep 60
+
+              echo "Starting continuous message production to backup-test-topic..."
+              count=0
+              while true; do
+                for i in $(seq 1 100); do
+                  count=$((count + 1))
+                  echo "{\"id\": $count, \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\", \"message\": \"Test message $count\", \"source\": \"kafka-producer\"}"
+                done | kafka-console-producer \
+                  --bootstrap-server kafka.confluent.svc.cluster.local:9071 \
+                  --topic backup-test-topic
+
+                echo "Produced 100 messages (total: $count). Sleeping 10 seconds..."
+                sleep 10
+              done
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+      restartPolicy: Always

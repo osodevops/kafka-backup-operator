@@ -104,21 +104,21 @@ pub async fn build_backup_config(
         .spec
         .checkpoint
         .as_ref()
-        .map(|c| build_checkpoint_config(c));
+        .map(build_checkpoint_config);
 
     // Build rate limiting config
     let rate_limiting = backup
         .spec
         .rate_limiting
         .as_ref()
-        .map(|r| build_rate_limiting_config(r));
+        .map(build_rate_limiting_config);
 
     // Build circuit breaker config
     let circuit_breaker = backup
         .spec
         .circuit_breaker
         .as_ref()
-        .map(|c| build_circuit_breaker_config(c));
+        .map(build_circuit_breaker_config);
 
     Ok(ResolvedBackupConfig {
         kafka,

@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: confluent
+resources:
+  - ../../base/confluent-platform
+  - producer.yaml
+  - backup-pvc.yaml
+  - kafka-backup.yaml

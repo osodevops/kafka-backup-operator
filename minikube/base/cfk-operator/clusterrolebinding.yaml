@@ -1,0 +1,14 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: confluent-for-kubernetes
+  labels:
+    app.kubernetes.io/name: confluent-for-kubernetes
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: confluent-for-kubernetes
+subjects:
+  - kind: ServiceAccount
+    name: confluent-for-kubernetes
+    namespace: confluent

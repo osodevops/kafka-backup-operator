@@ -86,14 +86,14 @@ pub async fn build_restore_config(
     let kafka = build_kafka_config(&restore.spec.kafka_cluster, client, namespace).await?;
 
     // Build PITR config
-    let pitr = restore.spec.pitr.as_ref().map(|p| build_pitr_config(p));
+    let pitr = restore.spec.pitr.as_ref().map(build_pitr_config);
 
     // Build rollback config
     let rollback = restore
         .spec
         .rollback
         .as_ref()
-        .map(|r| build_rollback_config(r));
+        .map(build_rollback_config);
 
     // Build rate limiting
     let rate_limiting = restore.spec.rate_limiting.as_ref().map(|r| {

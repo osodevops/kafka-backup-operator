@@ -1,0 +1,30 @@
+apiVersion: kafka.oso.sh/v1alpha1
+kind: KafkaBackup
+metadata:
+  name: backup-test-topic
+  namespace: confluent
+spec:
+  topics:
+    - backup-test-topic
+  kafkaCluster:
+    bootstrapServers:
+      - kafka.confluent.svc.cluster.local:9071
+    securityProtocol: PLAINTEXT
+  storage:
+    storageType: pvc
+    pvc:
+      claimName: kafka-backup-storage
+      subPath: backups
+  compression: zstd
+  compressionLevel: 3
+  checkpoint:
+    enabled: true
+    intervalSecs: 30
+  rateLimiting:
+    maxConcurrentPartitions: 2
+    bytesPerSec: 0
+    recordsPerSec: 0
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 5
+    resetTimeoutSecs: 60

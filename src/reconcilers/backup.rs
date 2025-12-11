@@ -59,13 +59,13 @@ pub fn validate(backup: &KafkaBackup) -> Result<()> {
     }
 
     // Validate compression level for zstd
-    if backup.spec.compression == "zstd" {
-        if backup.spec.compression_level < 1 || backup.spec.compression_level > 22 {
-            return Err(Error::validation(format!(
-                "Invalid zstd compression level {}: must be between 1 and 22",
-                backup.spec.compression_level
-            )));
-        }
+    if backup.spec.compression == "zstd"
+        && (backup.spec.compression_level < 1 || backup.spec.compression_level > 22)
+    {
+        return Err(Error::validation(format!(
+            "Invalid zstd compression level {}: must be between 1 and 22",
+            backup.spec.compression_level
+        )));
     }
 
     Ok(())

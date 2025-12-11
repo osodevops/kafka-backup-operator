@@ -138,9 +138,7 @@ pub async fn execute(
 
     match reset_result {
         Ok(result) => {
-            let phase = if result.groups_failed > 0 && !reset.spec.continue_on_error {
-                "PartiallyCompleted"
-            } else if result.groups_failed > 0 {
+            let phase = if result.groups_failed > 0 {
                 "PartiallyCompleted"
             } else {
                 "Completed"
