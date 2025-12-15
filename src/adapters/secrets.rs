@@ -56,7 +56,7 @@ pub async fn get_s3_credentials(
     Ok((access_key_id, secret_access_key))
 }
 
-/// Fetch Azure credentials from a Kubernetes secret
+/// Fetch Azure account key credentials from a Kubernetes secret
 pub async fn get_azure_credentials(
     client: &Client,
     namespace: &str,
@@ -65,6 +65,45 @@ pub async fn get_azure_credentials(
 ) -> Result<String> {
     let secret = get_secret(client, secret_name, namespace).await?;
     get_secret_string(&secret, account_key_key)
+}
+
+/// Fetch Azure SAS token from a Kubernetes secret
+pub async fn get_azure_sas_token(
+    client: &Client,
+    namespace: &str,
+    secret_name: &str,
+    sas_token_key: &str,
+) -> Result<String> {
+    let secret = get_secret(client, secret_name, namespace).await?;
+    get_secret_string(&secret, sas_token_key)
+}
+
+/// Azure Service Principal credentials
+#[derive(Debug, Clone)]
+pub struct AzureServicePrincipalCredentials {
+    pub client_id: String,
+    pub tenant_id: String,
+    pub client_secret: String,
+}
+
+/// Fetch Azure Service Principal credentials from a Kubernetes secret
+pub async fn get_azure_service_principal_credentials(
+    client: &Client,
+    namespace: &str,
+    secret_name: &str,
+    client_id_key: &str,
+    tenant_id_key: &str,
+    client_secret_key: &str,
+) -> Result<AzureServicePrincipalCredentials> {
+    let secret = get_secret(client, secret_name, namespace).await?;
+    let client_id = get_secret_string(&secret, client_id_key)?;
+    let tenant_id = get_secret_string(&secret, tenant_id_key)?;
+    let client_secret = get_secret_string(&secret, client_secret_key)?;
+    Ok(AzureServicePrincipalCredentials {
+        client_id,
+        tenant_id,
+        client_secret,
+    })
 }
 
 /// Fetch GCS credentials from a Kubernetes secret

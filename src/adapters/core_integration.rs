@@ -7,8 +7,9 @@ use std::path::PathBuf;
 use kafka_backup_core::config::{
     BackupOptions, CompressionType, Config, KafkaConfig, Mode, OffsetStorageBackend,
     OffsetStorageConfig, OffsetStrategy, RestoreOptions, SaslMechanism, SecurityConfig,
-    SecurityProtocol, StorageBackendType, StorageConfig, TopicSelection,
+    SecurityProtocol, TopicSelection,
 };
+use kafka_backup_core::storage::StorageBackendConfig;
 
 use super::backup_config::{ResolvedBackupConfig, ResolvedKafkaConfig};
 use super::restore_config::ResolvedRestoreConfig;
@@ -133,57 +134,72 @@ pub fn to_core_security_config_with_tls(
     }
 }
 
-/// Convert resolved storage configuration to kafka-backup-core StorageConfig
-fn to_core_storage_config(resolved: &ResolvedStorage) -> StorageConfig {
+/// Convert resolved storage configuration to kafka-backup-core StorageBackendConfig
+fn to_core_storage_config(resolved: &ResolvedStorage) -> StorageBackendConfig {
     match resolved {
-        ResolvedStorage::Local(local) => StorageConfig {
-            backend: StorageBackendType::Filesystem,
-            path: Some(PathBuf::from(&local.path)),
-            endpoint: None,
-            bucket: None,
-            access_key: None,
-            secret_key: None,
-            prefix: None,
-            region: None,
+        ResolvedStorage::Local(local) => StorageBackendConfig::Filesystem {
+            path: PathBuf::from(&local.path),
         },
-        ResolvedStorage::S3(s3) => StorageConfig {
-            backend: StorageBackendType::S3,
-            path: None,
+        ResolvedStorage::S3(s3) => StorageBackendConfig::S3 {
+            bucket: s3.bucket.clone(),
+            region: Some(s3.region.clone()),
             endpoint: s3.endpoint.clone(),
-            bucket: Some(s3.bucket.clone()),
             access_key: Some(s3.access_key_id.clone()),
             secret_key: Some(s3.secret_access_key.clone()),
             prefix: s3.prefix.clone(),
-            region: Some(s3.region.clone()),
+            path_style: false,
+            allow_http: false,
         },
-        // Azure and GCS would need to be mapped to S3-compatible endpoints or
-        // the core library would need to be extended to support them directly
-        ResolvedStorage::Azure(_azure) => {
-            // TODO: Map Azure to S3-compatible or extend core library
-            StorageConfig {
-                backend: StorageBackendType::S3,
-                path: None,
-                endpoint: None,
-                bucket: None,
-                access_key: None,
-                secret_key: None,
-                prefix: None,
-                region: None,
+        ResolvedStorage::Azure(azure) => {
+            // Determine authentication method based on resolved auth
+            let (account_key, use_workload_identity, client_id, tenant_id, client_secret, sas_token) =
+                match &azure.auth {
+                    super::storage_config::AzureAuthMethod::AccountKey(key) => {
+                        (Some(key.clone()), None, None, None, None, None)
+                    }
+                    super::storage_config::AzureAuthMethod::SasToken(token) => {
+                        (None, None, None, None, None, Some(token.clone()))
+                    }
+                    super::storage_config::AzureAuthMethod::ServicePrincipal {
+                        client_id,
+                        tenant_id,
+                        client_secret,
+                    } => (
+                        None,
+                        None,
+                        Some(client_id.clone()),
+                        Some(tenant_id.clone()),
+                        Some(client_secret.clone()),
+                        None,
+                    ),
+                    super::storage_config::AzureAuthMethod::WorkloadIdentity => {
+                        (None, Some(true), None, None, None, None)
+                    }
+                    super::storage_config::AzureAuthMethod::DefaultCredential => {
+                        // DefaultCredential uses Azure SDK's default credential chain
+                        // No explicit auth fields needed - the SDK will auto-detect
+                        (None, None, None, None, None, None)
+                    }
+                };
+
+            StorageBackendConfig::Azure {
+                account_name: azure.account_name.clone(),
+                container_name: azure.container.clone(),
+                account_key,
+                prefix: azure.prefix.clone(),
+                endpoint: azure.endpoint.clone(),
+                use_workload_identity,
+                client_id,
+                tenant_id,
+                client_secret,
+                sas_token,
             }
         }
-        ResolvedStorage::Gcs(_gcs) => {
-            // TODO: Map GCS to S3-compatible or extend core library
-            StorageConfig {
-                backend: StorageBackendType::S3,
-                path: None,
-                endpoint: None,
-                bucket: None,
-                access_key: None,
-                secret_key: None,
-                prefix: None,
-                region: None,
-            }
-        }
+        ResolvedStorage::Gcs(gcs) => StorageBackendConfig::Gcs {
+            bucket: gcs.bucket.clone(),
+            service_account_path: Some(gcs.service_account_json.clone()),
+            prefix: gcs.prefix.clone(),
+        },
     }
 }
 

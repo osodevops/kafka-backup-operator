@@ -273,18 +273,32 @@ pub struct AzureStorageSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prefix: Option<String>,
 
+    /// Custom endpoint URL (for Azure Government, China, or private endpoints)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+
     /// Use Azure Workload Identity for authentication
     /// When true, the operator uses the pod's federated identity token
     /// to authenticate with Azure Blob Storage (requires AKS with Workload Identity enabled)
+    /// This is auto-detected if AZURE_FEDERATED_TOKEN_FILE environment variable is present
     #[serde(default)]
     pub use_workload_identity: bool,
 
-    /// Credentials secret reference (optional when using Workload Identity)
+    /// Credentials secret reference for account key authentication
+    /// Optional when using Workload Identity or Service Principal
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credentials_secret: Option<AzureCredentialsRef>,
+
+    /// SAS token secret reference for time-limited access
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sas_token_secret: Option<AzureSasTokenRef>,
+
+    /// Service Principal credentials for CI/CD pipelines
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_principal_secret: Option<AzureServicePrincipalRef>,
 }
 
-/// Azure credentials secret reference
+/// Azure credentials secret reference (account key)
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AzureCredentialsRef {
@@ -298,6 +312,54 @@ pub struct AzureCredentialsRef {
 
 fn default_azure_account_key() -> String {
     "AZURE_STORAGE_KEY".to_string()
+}
+
+/// Azure SAS token secret reference
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureSasTokenRef {
+    /// Secret name
+    pub name: String,
+
+    /// SAS token key in secret
+    #[serde(default = "default_azure_sas_token")]
+    pub sas_token_key: String,
+}
+
+fn default_azure_sas_token() -> String {
+    "AZURE_SAS_TOKEN".to_string()
+}
+
+/// Azure Service Principal secret reference
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureServicePrincipalRef {
+    /// Secret name
+    pub name: String,
+
+    /// Client ID key in secret
+    #[serde(default = "default_azure_client_id")]
+    pub client_id_key: String,
+
+    /// Tenant ID key in secret
+    #[serde(default = "default_azure_tenant_id")]
+    pub tenant_id_key: String,
+
+    /// Client secret key in secret
+    #[serde(default = "default_azure_client_secret")]
+    pub client_secret_key: String,
+}
+
+fn default_azure_client_id() -> String {
+    "AZURE_CLIENT_ID".to_string()
+}
+
+fn default_azure_tenant_id() -> String {
+    "AZURE_TENANT_ID".to_string()
+}
+
+fn default_azure_client_secret() -> String {
+    "AZURE_CLIENT_SECRET".to_string()
 }
 
 /// GCS storage specification

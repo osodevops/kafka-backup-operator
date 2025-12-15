@@ -209,7 +209,8 @@ spec:
                         description: Container name
                         type: string
                       credentialsSecret:
-                        description: Credentials secret reference
+                        description: Credentials secret reference for account key authentication Optional when using Workload Identity or Service Principal
+                        nullable: true
                         properties:
                           accountKeyKey:
                             default: AZURE_STORAGE_KEY
@@ -221,14 +222,57 @@ spec:
                         required:
                         - name
                         type: object
+                      endpoint:
+                        description: Custom endpoint URL (for Azure Government, China, or private endpoints)
+                        nullable: true
+                        type: string
                       prefix:
                         description: Path prefix within container
                         nullable: true
                         type: string
+                      sasTokenSecret:
+                        description: SAS token secret reference for time-limited access
+                        nullable: true
+                        properties:
+                          name:
+                            description: Secret name
+                            type: string
+                          sasTokenKey:
+                            default: AZURE_SAS_TOKEN
+                            description: SAS token key in secret
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      servicePrincipalSecret:
+                        description: Service Principal credentials for CI/CD pipelines
+                        nullable: true
+                        properties:
+                          clientIdKey:
+                            default: AZURE_CLIENT_ID
+                            description: Client ID key in secret
+                            type: string
+                          clientSecretKey:
+                            default: AZURE_CLIENT_SECRET
+                            description: Client secret key in secret
+                            type: string
+                          name:
+                            description: Secret name
+                            type: string
+                          tenantIdKey:
+                            default: AZURE_TENANT_ID
+                            description: Tenant ID key in secret
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      useWorkloadIdentity:
+                        default: false
+                        description: Use Azure Workload Identity for authentication When true, the operator uses the pod's federated identity token to authenticate with Azure Blob Storage (requires AKS with Workload Identity enabled) This is auto-detected if AZURE_FEDERATED_TOKEN_FILE environment variable is present
+                        type: boolean
                     required:
                     - accountName
                     - container
-                    - credentialsSecret
                     type: object
                   gcs:
                     description: GCS storage configuration
@@ -531,7 +575,8 @@ spec:
                             description: Container name
                             type: string
                           credentialsSecret:
-                            description: Credentials secret reference
+                            description: Credentials secret reference for account key authentication Optional when using Workload Identity or Service Principal
+                            nullable: true
                             properties:
                               accountKeyKey:
                                 default: AZURE_STORAGE_KEY
@@ -543,14 +588,57 @@ spec:
                             required:
                             - name
                             type: object
+                          endpoint:
+                            description: Custom endpoint URL (for Azure Government, China, or private endpoints)
+                            nullable: true
+                            type: string
                           prefix:
                             description: Path prefix within container
                             nullable: true
                             type: string
+                          sasTokenSecret:
+                            description: SAS token secret reference for time-limited access
+                            nullable: true
+                            properties:
+                              name:
+                                description: Secret name
+                                type: string
+                              sasTokenKey:
+                                default: AZURE_SAS_TOKEN
+                                description: SAS token key in secret
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          servicePrincipalSecret:
+                            description: Service Principal credentials for CI/CD pipelines
+                            nullable: true
+                            properties:
+                              clientIdKey:
+                                default: AZURE_CLIENT_ID
+                                description: Client ID key in secret
+                                type: string
+                              clientSecretKey:
+                                default: AZURE_CLIENT_SECRET
+                                description: Client secret key in secret
+                                type: string
+                              name:
+                                description: Secret name
+                                type: string
+                              tenantIdKey:
+                                default: AZURE_TENANT_ID
+                                description: Tenant ID key in secret
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          useWorkloadIdentity:
+                            default: false
+                            description: Use Azure Workload Identity for authentication When true, the operator uses the pod's federated identity token to authenticate with Azure Blob Storage (requires AKS with Workload Identity enabled) This is auto-detected if AZURE_FEDERATED_TOKEN_FILE environment variable is present
+                            type: boolean
                         required:
                         - accountName
                         - container
-                        - credentialsSecret
                         type: object
                       gcs:
                         description: GCS storage configuration

@@ -9,7 +9,10 @@ use crate::crd::{
 };
 use crate::error::{Error, Result};
 
-use super::secrets::{get_azure_credentials, get_gcs_credentials, get_s3_credentials};
+use super::secrets::{
+    get_azure_credentials, get_azure_sas_token, get_azure_service_principal_credentials,
+    get_gcs_credentials, get_s3_credentials,
+};
 
 /// Resolved storage configuration ready for use with kafka-backup-core
 #[derive(Debug, Clone)]
@@ -46,8 +49,20 @@ pub struct S3StorageConfig {
 pub enum AzureAuthMethod {
     /// Account key authentication (from Kubernetes secret)
     AccountKey(String),
+    /// SAS token authentication (time-limited access)
+    SasToken(String),
+    /// Service Principal authentication (for CI/CD pipelines)
+    ServicePrincipal {
+        client_id: String,
+        tenant_id: String,
+        client_secret: String,
+    },
     /// Workload Identity authentication (uses pod's federated identity token)
+    /// Auto-detected via AZURE_FEDERATED_TOKEN_FILE environment variable
     WorkloadIdentity,
+    /// DefaultAzureCredential - uses Azure SDK's credential chain
+    /// Falls back through: environment variables, managed identity, CLI, etc.
+    DefaultCredential,
 }
 
 /// Azure Blob storage configuration with resolved credentials
@@ -57,6 +72,8 @@ pub struct AzureStorageConfig {
     pub account_name: String,
     pub auth: AzureAuthMethod,
     pub prefix: Option<String>,
+    /// Custom endpoint URL (for Azure Government, China, or private endpoints)
+    pub endpoint: Option<String>,
 }
 
 /// GCS storage configuration with resolved credentials
@@ -125,6 +142,14 @@ async fn build_s3_storage(
 }
 
 /// Build Azure Blob storage configuration with resolved credentials
+///
+/// Authentication method priority (first match wins):
+/// 1. Explicit `use_workload_identity: true` flag
+/// 2. Service Principal credentials (if secret provided)
+/// 3. SAS token (if secret provided)
+/// 4. Account key (if secret provided)
+/// 5. Auto-detect Workload Identity via AZURE_FEDERATED_TOKEN_FILE env var
+/// 6. DefaultAzureCredential fallback (Azure SDK credential chain)
 async fn build_azure_storage(
     azure: Option<&AzureStorageSpec>,
     client: &Client,
@@ -132,22 +157,58 @@ async fn build_azure_storage(
 ) -> Result<ResolvedStorage> {
     let azure = azure.ok_or_else(|| Error::config("Azure configuration is required for azure storage type"))?;
 
-    // Determine authentication method
+    // Determine authentication method based on priority
     let auth = if azure.use_workload_identity {
-        // Use Workload Identity - credentials are automatically provided via environment variables
-        // AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_FEDERATED_TOKEN_FILE, AZURE_AUTHORITY_HOST
+        // 1. Explicit Workload Identity flag
         tracing::info!(
             account_name = %azure.account_name,
             container = %azure.container,
-            "Using Azure Workload Identity for authentication"
+            "Using Azure Workload Identity for authentication (explicit flag)"
         );
         AzureAuthMethod::WorkloadIdentity
-    } else {
-        // Use account key from Kubernetes secret
-        let creds = azure.credentials_secret.as_ref().ok_or_else(|| {
-            Error::config("Azure credentials_secret is required when use_workload_identity is false")
-        })?;
+    } else if let Some(sp_secret) = &azure.service_principal_secret {
+        // 2. Service Principal credentials
+        let sp_creds = get_azure_service_principal_credentials(
+            client,
+            namespace,
+            &sp_secret.name,
+            &sp_secret.client_id_key,
+            &sp_secret.tenant_id_key,
+            &sp_secret.client_secret_key,
+        )
+        .await?;
 
+        tracing::info!(
+            account_name = %azure.account_name,
+            container = %azure.container,
+            client_id = %sp_creds.client_id,
+            "Using Azure Service Principal for authentication"
+        );
+
+        AzureAuthMethod::ServicePrincipal {
+            client_id: sp_creds.client_id,
+            tenant_id: sp_creds.tenant_id,
+            client_secret: sp_creds.client_secret,
+        }
+    } else if let Some(sas_secret) = &azure.sas_token_secret {
+        // 3. SAS token
+        let sas_token = get_azure_sas_token(
+            client,
+            namespace,
+            &sas_secret.name,
+            &sas_secret.sas_token_key,
+        )
+        .await?;
+
+        tracing::info!(
+            account_name = %azure.account_name,
+            container = %azure.container,
+            "Using Azure SAS token for authentication"
+        );
+
+        AzureAuthMethod::SasToken(sas_token)
+    } else if let Some(creds) = &azure.credentials_secret {
+        // 4. Account key
         let account_key = get_azure_credentials(
             client,
             namespace,
@@ -156,7 +217,29 @@ async fn build_azure_storage(
         )
         .await?;
 
+        tracing::info!(
+            account_name = %azure.account_name,
+            container = %azure.container,
+            "Using Azure account key for authentication"
+        );
+
         AzureAuthMethod::AccountKey(account_key)
+    } else if std::env::var("AZURE_FEDERATED_TOKEN_FILE").is_ok() {
+        // 5. Auto-detect Workload Identity via environment variable
+        tracing::info!(
+            account_name = %azure.account_name,
+            container = %azure.container,
+            "Using Azure Workload Identity for authentication (auto-detected via AZURE_FEDERATED_TOKEN_FILE)"
+        );
+        AzureAuthMethod::WorkloadIdentity
+    } else {
+        // 6. DefaultAzureCredential fallback
+        tracing::info!(
+            account_name = %azure.account_name,
+            container = %azure.container,
+            "Using Azure DefaultCredential chain for authentication"
+        );
+        AzureAuthMethod::DefaultCredential
     };
 
     Ok(ResolvedStorage::Azure(AzureStorageConfig {
@@ -164,6 +247,7 @@ async fn build_azure_storage(
         account_name: azure.account_name.clone(),
         auth,
         prefix: azure.prefix.clone(),
+        endpoint: azure.endpoint.clone(),
     }))
 }
 
