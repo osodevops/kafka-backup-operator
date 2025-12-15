@@ -75,6 +75,12 @@ spec:
             failureThreshold: 3
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
       terminationGracePeriodSeconds: 30
       {{- with .Values.nodeSelector }}
       nodeSelector:
