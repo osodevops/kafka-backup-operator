@@ -183,7 +183,10 @@ fn to_core_storage_config(resolved: &ResolvedStorage) -> StorageBackendConfig {
                     None,
                 ),
                 super::storage_config::AzureAuthMethod::WorkloadIdentity => {
-                    (None, Some(true), None, None, None, None)
+                    // Read client_id from environment variable for workload identity
+                    let client_id = std::env::var("AZURE_CLIENT_ID").ok();
+                    let tenant_id = std::env::var("AZURE_TENANT_ID").ok();
+                    (None, Some(true), client_id, tenant_id, None, None)
                 }
                 super::storage_config::AzureAuthMethod::DefaultCredential => {
                     // DefaultCredential uses Azure SDK's default credential chain
