@@ -4,9 +4,7 @@
 
 use kube::Client;
 
-use crate::crd::{
-    AzureStorageSpec, GcsStorageSpec, PvcStorageSpec, S3StorageSpec, StorageSpec,
-};
+use crate::crd::{AzureStorageSpec, GcsStorageSpec, PvcStorageSpec, S3StorageSpec, StorageSpec};
 use crate::error::{Error, Result};
 
 use super::secrets::{
@@ -95,13 +93,17 @@ pub async fn build_storage_config(
         "s3" => build_s3_storage(storage.s3.as_ref(), client, namespace).await,
         "azure" => build_azure_storage(storage.azure.as_ref(), client, namespace).await,
         "gcs" => build_gcs_storage(storage.gcs.as_ref(), client, namespace).await,
-        other => Err(Error::config(format!("Unsupported storage type: {}", other))),
+        other => Err(Error::config(format!(
+            "Unsupported storage type: {}",
+            other
+        ))),
     }
 }
 
 /// Build PVC/local storage configuration
 async fn build_pvc_storage(pvc: Option<&PvcStorageSpec>) -> Result<ResolvedStorage> {
-    let pvc = pvc.ok_or_else(|| Error::config("PVC configuration is required for pvc storage type"))?;
+    let pvc =
+        pvc.ok_or_else(|| Error::config("PVC configuration is required for pvc storage type"))?;
 
     // Build the path from claim name and optional sub-path
     let base_path = format!("/data/{}", pvc.claim_name);
@@ -155,7 +157,8 @@ async fn build_azure_storage(
     client: &Client,
     namespace: &str,
 ) -> Result<ResolvedStorage> {
-    let azure = azure.ok_or_else(|| Error::config("Azure configuration is required for azure storage type"))?;
+    let azure = azure
+        .ok_or_else(|| Error::config("Azure configuration is required for azure storage type"))?;
 
     // Determine authentication method based on priority
     let auth = if azure.use_workload_identity {
@@ -209,13 +212,8 @@ async fn build_azure_storage(
         AzureAuthMethod::SasToken(sas_token)
     } else if let Some(creds) = &azure.credentials_secret {
         // 4. Account key
-        let account_key = get_azure_credentials(
-            client,
-            namespace,
-            &creds.name,
-            &creds.account_key_key,
-        )
-        .await?;
+        let account_key =
+            get_azure_credentials(client, namespace, &creds.name, &creds.account_key_key).await?;
 
         tracing::info!(
             account_name = %azure.account_name,
@@ -257,7 +255,8 @@ async fn build_gcs_storage(
     client: &Client,
     namespace: &str,
 ) -> Result<ResolvedStorage> {
-    let gcs = gcs.ok_or_else(|| Error::config("GCS configuration is required for gcs storage type"))?;
+    let gcs =
+        gcs.ok_or_else(|| Error::config("GCS configuration is required for gcs storage type"))?;
 
     // Fetch credentials from Kubernetes secret
     let service_account_json = get_gcs_credentials(

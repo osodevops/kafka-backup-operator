@@ -72,11 +72,7 @@ pub async fn monitor_progress(
 }
 
 /// Execute a restore operation
-pub async fn execute(
-    restore: &KafkaRestore,
-    client: &Client,
-    namespace: &str,
-) -> Result<Action> {
+pub async fn execute(restore: &KafkaRestore, client: &Client, namespace: &str) -> Result<Action> {
     let name = restore.name_any();
     let api: Api<KafkaRestore> = Api::namespaced(client.clone(), namespace);
 
@@ -97,8 +93,12 @@ pub async fn execute(
             "observedGeneration": restore.metadata.generation,
         }
     });
-    api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(running_status))
-        .await?;
+    api.patch_status(
+        &name,
+        &PatchParams::apply("kafka-backup-operator"),
+        &Patch::Merge(running_status),
+    )
+    .await?;
 
     // Create rollback snapshot if enabled
     if let Some(rollback) = &restore.spec.rollback {
@@ -144,8 +144,12 @@ pub async fn execute(
                     }]
                 }
             });
-            api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(completed_status))
-                .await?;
+            api.patch_status(
+                &name,
+                &PatchParams::apply("kafka-backup-operator"),
+                &Patch::Merge(completed_status),
+            )
+            .await?;
 
             // Execute offset reset if configured
             if let Some(offset_reset) = &restore.spec.offset_reset {
@@ -186,8 +190,12 @@ pub async fn execute(
                     }]
                 }
             });
-            api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(failed_status))
-                .await?;
+            api.patch_status(
+                &name,
+                &PatchParams::apply("kafka-backup-operator"),
+                &Patch::Merge(failed_status),
+            )
+            .await?;
 
             Ok(Action::requeue(Duration::from_secs(300)))
         }
@@ -221,8 +229,12 @@ async fn execute_dry_run(
             }]
         }
     });
-    api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(status))
-        .await?;
+    api.patch_status(
+        &name,
+        &PatchParams::apply("kafka-backup-operator"),
+        &Patch::Merge(status),
+    )
+    .await?;
 
     Ok(Action::await_change())
 }
@@ -249,7 +261,8 @@ async fn execute_restore_internal(
     let resolved_config = build_restore_config(restore, client, namespace).await?;
 
     // 2. Resolve the backup source to get storage config and backup ID
-    let (backup_id, storage) = resolve_backup_source(&resolved_config.backup_source, client, namespace).await?;
+    let (backup_id, storage) =
+        resolve_backup_source(&resolved_config.backup_source, client, namespace).await?;
 
     info!(
         name = %name,
@@ -317,7 +330,11 @@ async fn resolve_backup_source(
             let backup_id = format!("restore-{}", Utc::now().format("%Y%m%d-%H%M%S"));
             Ok((backup_id, storage.clone()))
         }
-        ResolvedBackupSource::BackupResource { name, namespace: backup_ns, backup_id } => {
+        ResolvedBackupSource::BackupResource {
+            name,
+            namespace: backup_ns,
+            backup_id,
+        } => {
             // Reference to a KafkaBackup resource - fetch it to get storage config
             let api: Api<KafkaBackup> = Api::namespaced(client.clone(), backup_ns);
             let backup = api.get(name).await.map_err(|e| {
@@ -334,12 +351,9 @@ async fn resolve_backup_source(
             });
 
             // Build storage config from the backup's storage spec
-            let storage = crate::adapters::build_storage_config(
-                &backup.spec.storage,
-                client,
-                backup_ns,
-            )
-            .await?;
+            let storage =
+                crate::adapters::build_storage_config(&backup.spec.storage, client, backup_ns)
+                    .await?;
 
             Ok((resolved_backup_id, storage))
         }
@@ -371,8 +385,12 @@ pub async fn update_status_failed(
         }
     });
 
-    api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(status))
-        .await?;
+    api.patch_status(
+        &name,
+        &PatchParams::apply("kafka-backup-operator"),
+        &Patch::Merge(status),
+    )
+    .await?;
 
     Ok(())
 }

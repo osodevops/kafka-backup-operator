@@ -5,9 +5,7 @@ use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{
-    CircuitBreakerSpec, Condition, KafkaClusterSpec, RateLimitingSpec, StorageSpec,
-};
+use super::{CircuitBreakerSpec, Condition, KafkaClusterSpec, RateLimitingSpec, StorageSpec};
 
 /// KafkaRestore resource specification
 #[derive(CustomResource, Clone, Debug, Deserialize, Serialize, JsonSchema)]

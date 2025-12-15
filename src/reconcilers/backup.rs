@@ -35,7 +35,9 @@ pub fn validate(backup: &KafkaBackup) -> Result<()> {
 
     // Validate kafka cluster
     if backup.spec.kafka_cluster.bootstrap_servers.is_empty() {
-        return Err(Error::validation("At least one bootstrap server must be specified"));
+        return Err(Error::validation(
+            "At least one bootstrap server must be specified",
+        ));
     }
 
     // Validate storage configuration
@@ -43,8 +45,9 @@ pub fn validate(backup: &KafkaBackup) -> Result<()> {
 
     // Validate schedule if provided
     if let Some(schedule) = &backup.spec.schedule {
-        Schedule::from_str(schedule)
-            .map_err(|e| Error::validation(format!("Invalid cron schedule '{}': {}", schedule, e)))?;
+        Schedule::from_str(schedule).map_err(|e| {
+            Error::validation(format!("Invalid cron schedule '{}': {}", schedule, e))
+        })?;
     }
 
     // Validate compression
@@ -76,12 +79,16 @@ fn validate_storage(storage: &crate::crd::StorageSpec) -> Result<()> {
     match storage.storage_type.as_str() {
         "pvc" => {
             if storage.pvc.is_none() {
-                return Err(Error::validation("PVC storage selected but pvc configuration is missing"));
+                return Err(Error::validation(
+                    "PVC storage selected but pvc configuration is missing",
+                ));
             }
         }
         "s3" => {
             if storage.s3.is_none() {
-                return Err(Error::validation("S3 storage selected but s3 configuration is missing"));
+                return Err(Error::validation(
+                    "S3 storage selected but s3 configuration is missing",
+                ));
             }
         }
         "azure" => {
@@ -97,7 +104,9 @@ fn validate_storage(storage: &crate::crd::StorageSpec) -> Result<()> {
         }
         "gcs" => {
             if storage.gcs.is_none() {
-                return Err(Error::validation("GCS storage selected but gcs configuration is missing"));
+                return Err(Error::validation(
+                    "GCS storage selected but gcs configuration is missing",
+                ));
             }
         }
         other => {
@@ -158,10 +167,7 @@ pub async fn check_schedule(
 
 /// Determine if a backup should run now
 fn should_run_backup(backup: &KafkaBackup, schedule: &Schedule, now: DateTime<Utc>) -> bool {
-    let last_backup = backup
-        .status
-        .as_ref()
-        .and_then(|s| s.last_backup_time);
+    let last_backup = backup.status.as_ref().and_then(|s| s.last_backup_time);
 
     match last_backup {
         None => true, // Never backed up
@@ -178,10 +184,7 @@ fn should_run_backup(backup: &KafkaBackup, schedule: &Schedule, now: DateTime<Ut
             // Check using after() iterator for past times
             if let Some(_next) = schedule.upcoming(Utc).next() {
                 // If next scheduled time is in the future, check if we missed one
-                let interval = schedule
-                    .upcoming(Utc)
-                    .take(2)
-                    .collect::<Vec<_>>();
+                let interval = schedule.upcoming(Utc).take(2).collect::<Vec<_>>();
 
                 if interval.len() >= 2 {
                     let typical_interval = interval[1] - interval[0];
@@ -198,11 +201,7 @@ fn should_run_backup(backup: &KafkaBackup, schedule: &Schedule, now: DateTime<Ut
 }
 
 /// Execute a backup operation
-async fn execute_backup(
-    backup: &KafkaBackup,
-    client: &Client,
-    namespace: &str,
-) -> Result<Action> {
+async fn execute_backup(backup: &KafkaBackup, client: &Client, namespace: &str) -> Result<Action> {
     let name = backup.name_any();
     let api: Api<KafkaBackup> = Api::namespaced(client.clone(), namespace);
 
@@ -216,8 +215,12 @@ async fn execute_backup(
             "observedGeneration": backup.metadata.generation,
         }
     });
-    api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(running_status))
-        .await?;
+    api.patch_status(
+        &name,
+        &PatchParams::apply("kafka-backup-operator"),
+        &Patch::Merge(running_status),
+    )
+    .await?;
 
     // TODO: Execute actual backup using kafka-backup-core
     // For now, simulate a successful backup
@@ -265,8 +268,12 @@ async fn execute_backup(
                     }]
                 }
             });
-            api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(completed_status))
-                .await?;
+            api.patch_status(
+                &name,
+                &PatchParams::apply("kafka-backup-operator"),
+                &Patch::Merge(completed_status),
+            )
+            .await?;
 
             // Requeue for next scheduled backup
             if backup.spec.schedule.is_some() {
@@ -296,8 +303,12 @@ async fn execute_backup(
                     }]
                 }
             });
-            api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(failed_status))
-                .await?;
+            api.patch_status(
+                &name,
+                &PatchParams::apply("kafka-backup-operator"),
+                &Patch::Merge(failed_status),
+            )
+            .await?;
 
             // Retry after delay
             Ok(Action::requeue(Duration::from_secs(300)))
@@ -322,11 +333,7 @@ async fn execute_backup_internal(
     let name = backup.name_any();
 
     // Generate unique backup ID
-    let backup_id = format!(
-        "{}-{}",
-        name,
-        Utc::now().format("%Y%m%d-%H%M%S")
-    );
+    let backup_id = format!("{}-{}", name, Utc::now().format("%Y%m%d-%H%M%S"));
 
     info!(name = %name, backup_id = %backup_id, "Building backup configuration");
 
@@ -355,7 +362,8 @@ async fn execute_backup_internal(
     if let Err(e) = std::env::set_current_dir(&working_dir) {
         return Err(Error::Storage(format!(
             "Failed to change working directory to '{}': {}",
-            working_dir.display(), e
+            working_dir.display(),
+            e
         )));
     }
     debug!(working_dir = %working_dir.display(), "Changed working directory for backup engine");
@@ -430,8 +438,12 @@ pub async fn update_status_ready(
         }
     });
 
-    api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(status))
-        .await?;
+    api.patch_status(
+        &name,
+        &PatchParams::apply("kafka-backup-operator"),
+        &Patch::Merge(status),
+    )
+    .await?;
 
     Ok(())
 }
@@ -461,8 +473,12 @@ pub async fn update_status_failed(
         }
     });
 
-    api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(status))
-        .await?;
+    api.patch_status(
+        &name,
+        &PatchParams::apply("kafka-backup-operator"),
+        &Patch::Merge(status),
+    )
+    .await?;
 
     Ok(())
 }
@@ -489,20 +505,14 @@ fn ensure_storage_directories(storage: &ResolvedStorage) -> Result<()> {
             if !metadata_path.exists() {
                 debug!(path = ?metadata_path, "Creating metadata subdirectory");
                 std::fs::create_dir_all(&metadata_path).map_err(|e| {
-                    Error::Storage(format!(
-                        "Failed to create metadata directory: {}",
-                        e
-                    ))
+                    Error::Storage(format!("Failed to create metadata directory: {}", e))
                 })?;
             }
 
             if !segments_path.exists() {
                 debug!(path = ?segments_path, "Creating segments subdirectory");
                 std::fs::create_dir_all(&segments_path).map_err(|e| {
-                    Error::Storage(format!(
-                        "Failed to create segments directory: {}",
-                        e
-                    ))
+                    Error::Storage(format!("Failed to create segments directory: {}", e))
                 })?;
             }
 

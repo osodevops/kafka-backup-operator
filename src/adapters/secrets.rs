@@ -8,15 +8,12 @@ use crate::error::{Error, Result};
 /// Fetch a secret from Kubernetes
 pub async fn get_secret(client: &Client, name: &str, namespace: &str) -> Result<Secret> {
     let secrets: Api<Secret> = Api::namespaced(client.clone(), namespace);
-    secrets
-        .get(name)
-        .await
-        .map_err(|e| match e {
-            kube::Error::Api(api_err) if api_err.code == 404 => {
-                Error::SecretNotFound(format!("{}/{}", namespace, name))
-            }
-            other => Error::Kube(other),
-        })
+    secrets.get(name).await.map_err(|e| match e {
+        kube::Error::Api(api_err) if api_err.code == 404 => {
+            Error::SecretNotFound(format!("{}/{}", namespace, name))
+        }
+        other => Error::Kube(other),
+    })
 }
 
 /// Get a string value from a secret
@@ -34,12 +31,8 @@ pub fn get_secret_string(secret: &Secret, key: &str) -> Result<String> {
         key: key.to_string(),
     })?;
 
-    String::from_utf8(bytes.0.clone()).map_err(|e| {
-        Error::Config(format!(
-            "Invalid UTF-8 in secret key '{}': {}",
-            key, e
-        ))
-    })
+    String::from_utf8(bytes.0.clone())
+        .map_err(|e| Error::Config(format!("Invalid UTF-8 in secret key '{}': {}", key, e)))
 }
 
 /// Fetch S3 credentials from a Kubernetes secret
@@ -129,7 +122,9 @@ pub async fn get_tls_credentials(
     let secret = get_secret(client, secret_name, namespace).await?;
 
     let ca_cert = get_secret_string(&secret, ca_key)?;
-    let client_cert = cert_key.map(|k| get_secret_string(&secret, k)).transpose()?;
+    let client_cert = cert_key
+        .map(|k| get_secret_string(&secret, k))
+        .transpose()?;
     let client_key = key_key.map(|k| get_secret_string(&secret, k)).transpose()?;
 
     Ok(TlsCredentials {

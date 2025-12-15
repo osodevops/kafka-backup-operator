@@ -40,7 +40,10 @@ impl TlsFileManager {
     pub fn new(credentials: &TlsCredentials, base_dir: &Path) -> Result<Self> {
         // Create the base directory if it doesn't exist
         fs::create_dir_all(base_dir).map_err(|e| {
-            Error::Core(format!("Failed to create TLS directory {:?}: {}", base_dir, e))
+            Error::Core(format!(
+                "Failed to create TLS directory {:?}: {}",
+                base_dir, e
+            ))
         })?;
 
         // Write CA certificate
@@ -68,8 +71,9 @@ impl TlsFileManager {
                     .map_err(|e| Error::Core(format!("Failed to get key file metadata: {}", e)))?
                     .permissions();
                 perms.set_mode(0o400);
-                fs::set_permissions(&path, perms)
-                    .map_err(|e| Error::Core(format!("Failed to set key file permissions: {}", e)))?;
+                fs::set_permissions(&path, perms).map_err(|e| {
+                    Error::Core(format!("Failed to set key file permissions: {}", e))
+                })?;
             }
             Some(path)
         } else {
@@ -94,7 +98,10 @@ impl TlsFileManager {
         client_key_path: Option<PathBuf>,
     ) -> Self {
         Self {
-            base_dir: ca_cert_path.parent().unwrap_or(Path::new("/")).to_path_buf(),
+            base_dir: ca_cert_path
+                .parent()
+                .unwrap_or(Path::new("/"))
+                .to_path_buf(),
             ca_cert_path,
             client_cert_path,
             client_key_path,
@@ -143,15 +150,12 @@ impl Drop for TlsFileManager {
 
 /// Write content to a file
 fn write_file(path: &Path, content: &str) -> Result<()> {
-    let mut file = File::create(path).map_err(|e| {
-        Error::Core(format!("Failed to create file {:?}: {}", path, e))
-    })?;
-    file.write_all(content.as_bytes()).map_err(|e| {
-        Error::Core(format!("Failed to write file {:?}: {}", path, e))
-    })?;
-    file.flush().map_err(|e| {
-        Error::Core(format!("Failed to flush file {:?}: {}", path, e))
-    })?;
+    let mut file = File::create(path)
+        .map_err(|e| Error::Core(format!("Failed to create file {:?}: {}", path, e)))?;
+    file.write_all(content.as_bytes())
+        .map_err(|e| Error::Core(format!("Failed to write file {:?}: {}", path, e)))?;
+    file.flush()
+        .map_err(|e| Error::Core(format!("Failed to flush file {:?}: {}", path, e)))?;
     Ok(())
 }
 
@@ -170,8 +174,12 @@ mod tests {
         let dir = tempdir().unwrap();
         let creds = TlsCredentials {
             ca_cert: "-----BEGIN CERTIFICATE-----\ntest-ca\n-----END CERTIFICATE-----".to_string(),
-            client_cert: Some("-----BEGIN CERTIFICATE-----\ntest-client\n-----END CERTIFICATE-----".to_string()),
-            client_key: Some("-----BEGIN PRIVATE KEY-----\ntest-key\n-----END PRIVATE KEY-----".to_string()),
+            client_cert: Some(
+                "-----BEGIN CERTIFICATE-----\ntest-client\n-----END CERTIFICATE-----".to_string(),
+            ),
+            client_key: Some(
+                "-----BEGIN PRIVATE KEY-----\ntest-key\n-----END PRIVATE KEY-----".to_string(),
+            ),
         };
 
         let manager = TlsFileManager::new(&creds, dir.path()).unwrap();

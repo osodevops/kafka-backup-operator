@@ -100,11 +100,7 @@ pub async fn build_backup_config(
     };
 
     // Build checkpoint config
-    let checkpoint = backup
-        .spec
-        .checkpoint
-        .as_ref()
-        .map(build_checkpoint_config);
+    let checkpoint = backup.spec.checkpoint.as_ref().map(build_checkpoint_config);
 
     // Build rate limiting config
     let rate_limiting = backup
@@ -206,7 +202,9 @@ fn build_rate_limiting_config(rate_limiting: &RateLimitingSpec) -> ResolvedRateL
     }
 }
 
-fn build_circuit_breaker_config(circuit_breaker: &CircuitBreakerSpec) -> ResolvedCircuitBreakerConfig {
+fn build_circuit_breaker_config(
+    circuit_breaker: &CircuitBreakerSpec,
+) -> ResolvedCircuitBreakerConfig {
     ResolvedCircuitBreakerConfig {
         enabled: circuit_breaker.enabled,
         failure_threshold: circuit_breaker.failure_threshold,

@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kafka_backup_operator::crd::{
     BackupRef, KafkaBackup, KafkaBackupSpec, KafkaClusterSpec, KafkaOffsetReset,
-    KafkaOffsetResetSpec, KafkaRestore, KafkaRestoreSpec, OffsetMappingRef,
-    OffsetResetStrategy, PitrSpec, PvcStorageSpec, StorageSpec,
+    KafkaOffsetResetSpec, KafkaRestore, KafkaRestoreSpec, OffsetMappingRef, OffsetResetStrategy,
+    PitrSpec, PvcStorageSpec, StorageSpec,
 };
 use kafka_backup_operator::reconcilers::{backup, offset_reset, restore};
 
@@ -132,7 +132,11 @@ fn backup_pvc_storage_without_config_fails_validation() {
     let result = backup::validate(&backup);
 
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().to_lowercase().contains("pvc"));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .to_lowercase()
+        .contains("pvc"));
 }
 
 #[test]
@@ -146,7 +150,11 @@ fn backup_s3_storage_without_config_fails_validation() {
     let result = backup::validate(&backup);
 
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().to_lowercase().contains("s3"));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .to_lowercase()
+        .contains("s3"));
 }
 
 #[test]
@@ -167,10 +175,10 @@ fn backup_valid_cron_schedules_pass_validation() {
     // cron crate uses 7-field format: sec min hour day_of_month month day_of_week year
     // Day of week: SUN=1, MON=2, ..., SAT=7 (or use names)
     let valid_schedules = vec![
-        "0 0 0 * * * *",       // Every day at midnight
-        "0 */5 * * * * *",     // Every 5 minutes
-        "0 0 */2 * * * *",     // Every 2 hours
-        "0 0 0 * * SUN *",     // Every Sunday (using name)
+        "0 0 0 * * * *",   // Every day at midnight
+        "0 */5 * * * * *", // Every 5 minutes
+        "0 0 */2 * * * *", // Every 2 hours
+        "0 0 0 * * SUN *", // Every Sunday (using name)
     ];
 
     for schedule in valid_schedules {
@@ -197,7 +205,11 @@ fn backup_invalid_compression_fails_validation() {
     let result = backup::validate(&backup);
 
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().to_lowercase().contains("compression"));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .to_lowercase()
+        .contains("compression"));
 }
 
 #[test]
@@ -230,7 +242,10 @@ fn backup_invalid_zstd_compression_level_fails_validation() {
         let result = backup::validate(&backup);
 
         assert!(result.is_err(), "Level {} should fail validation", level);
-        assert!(result.unwrap_err().to_string().contains("compression level"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("compression level"));
     }
 }
 
@@ -405,8 +420,7 @@ fn restore_specific_topics_passes_validation() {
 #[test]
 fn restore_topic_mapping_passes_validation() {
     let mut spec = valid_restore_spec();
-    spec.topic_mapping =
-        HashMap::from([("source-topic".to_string(), "target-topic".to_string())]);
+    spec.topic_mapping = HashMap::from([("source-topic".to_string(), "target-topic".to_string())]);
 
     let restore = create_restore(spec);
     assert!(restore::validate(&restore).is_ok());
@@ -489,7 +503,11 @@ fn offset_reset_to_timestamp_without_timestamp_fails_validation() {
     let result = offset_reset::validate(&reset);
 
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().to_lowercase().contains("timestamp"));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .to_lowercase()
+        .contains("timestamp"));
 }
 
 #[test]
@@ -512,7 +530,11 @@ fn offset_reset_to_offset_without_offset_fails_validation() {
     let result = offset_reset::validate(&reset);
 
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().to_lowercase().contains("offset"));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .to_lowercase()
+        .contains("offset"));
 }
 
 #[test]
@@ -535,7 +557,11 @@ fn offset_reset_from_mapping_without_mapping_ref_fails_validation() {
     let result = offset_reset::validate(&reset);
 
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().to_lowercase().contains("mapping"));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .to_lowercase()
+        .contains("mapping"));
 }
 
 #[test]

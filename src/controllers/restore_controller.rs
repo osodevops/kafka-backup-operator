@@ -52,7 +52,9 @@ pub async fn run(client: Client, context: Arc<Context>) {
                 }
                 Err(e) => {
                     error!(error = %e, "Reconciliation error");
-                    metrics::RECONCILIATION_ERRORS.with_label_values(&["KafkaRestore"]).inc();
+                    metrics::RECONCILIATION_ERRORS
+                        .with_label_values(&["KafkaRestore"])
+                        .inc();
                 }
             }
         })
@@ -65,7 +67,9 @@ async fn reconcile(obj: Arc<KafkaRestore>, ctx: Arc<Context>) -> Result<Action> 
     let _timer = metrics::RECONCILE_DURATION
         .with_label_values(&["KafkaRestore"])
         .start_timer();
-    metrics::RECONCILIATIONS.with_label_values(&["KafkaRestore"]).inc();
+    metrics::RECONCILIATIONS
+        .with_label_values(&["KafkaRestore"])
+        .inc();
 
     let namespace = obj.namespace().unwrap_or_else(|| "default".to_string());
     let api: Api<KafkaRestore> = Api::namespaced(ctx.client.clone(), &namespace);

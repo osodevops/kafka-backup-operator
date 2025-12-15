@@ -52,7 +52,9 @@ pub async fn run(client: Client, context: Arc<Context>) {
                 }
                 Err(e) => {
                     error!(error = %e, "Reconciliation error");
-                    metrics::RECONCILIATION_ERRORS.with_label_values(&["KafkaOffsetRollback"]).inc();
+                    metrics::RECONCILIATION_ERRORS
+                        .with_label_values(&["KafkaOffsetRollback"])
+                        .inc();
                 }
             }
         })
@@ -65,7 +67,9 @@ async fn reconcile(obj: Arc<KafkaOffsetRollback>, ctx: Arc<Context>) -> Result<A
     let _timer = metrics::RECONCILE_DURATION
         .with_label_values(&["KafkaOffsetRollback"])
         .start_timer();
-    metrics::RECONCILIATIONS.with_label_values(&["KafkaOffsetRollback"]).inc();
+    metrics::RECONCILIATIONS
+        .with_label_values(&["KafkaOffsetRollback"])
+        .inc();
 
     let namespace = obj.namespace().unwrap_or_else(|| "default".to_string());
     let api: Api<KafkaOffsetRollback> = Api::namespaced(ctx.client.clone(), &namespace);
@@ -83,7 +87,9 @@ async fn reconcile(obj: Arc<KafkaOffsetRollback>, ctx: Arc<Context>) -> Result<A
 /// Apply reconciliation (create/update)
 async fn apply(rollback: Arc<KafkaOffsetRollback>, ctx: Arc<Context>) -> Result<Action> {
     let name = rollback.name_any();
-    let namespace = rollback.namespace().unwrap_or_else(|| "default".to_string());
+    let namespace = rollback
+        .namespace()
+        .unwrap_or_else(|| "default".to_string());
     let generation = rollback.metadata.generation.unwrap_or(0);
 
     info!(
@@ -135,7 +141,9 @@ async fn cleanup(rollback: Arc<KafkaOffsetRollback>, _ctx: Arc<Context>) -> Resu
     let name = rollback.name_any();
     info!(name = %name, "Cleaning up KafkaOffsetRollback");
 
-    metrics::CLEANUPS.with_label_values(&["KafkaOffsetRollback"]).inc();
+    metrics::CLEANUPS
+        .with_label_values(&["KafkaOffsetRollback"])
+        .inc();
 
     Ok(Action::await_change())
 }

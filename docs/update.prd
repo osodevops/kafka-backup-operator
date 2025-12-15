@@ -1,0 +1,1485 @@
+# OSO Kafka Backup: Updated Operator PRD (Library-First Architecture)
+
+**Revision:** 3 (Updated: 2025-12-03)
+**Previous:** Revision 2 introduced library-first pattern
+**Change:** Added graceful shutdown, resumable operations, rate limiting, circuit breaker, offset rollback, and PVC-first storage
+
+---
+
+## CRITICAL CHANGE: Library-First Execution Model
+
+### Old Approach (❌ Avoid)
+
+```
+Operator Reconciler
+    ↓
+Execute CLI as subprocess
+    ↓ (spawn process)
+kafka-backup backup --config /tmp/config.yaml
+    ↓ (parse stdout/stderr)
+Result
+```
+
+**Problems:**
+- Shell quoting issues
+- No structured error handling
+- Performance overhead (new process per reconciliation)
+- Difficult to mock in tests
+- Can't access Rust types directly
+
+### New Approach (✅ Use This)
+
+```
+Operator Reconciler
+    ↓
+kafka-backup-core library call
+    ↓ (direct function)
+BackupEngine::new(config).await?.run().await?
+    ↓ (typed Rust API)
+Result (structured enum)
+```
+
+**Benefits:**
+- Type-safe API
+- No subprocess overhead
+- Better error handling (Result<T, E> pattern)
+- Easy to test
+- Performance: no serialization/deserialization
+
+---
+
+## Part 1: Updated Operator Architecture
+
+### Dependency: Direct Library Linking
+
+**kafka-backup-operator/Cargo.toml:**
+
+```toml
+[package]
+name = "kafka-backup-operator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# PRIMARY: Library-based approach
+kafka-backup-core = "0.2"  # Published to crates.io
+
+# Kubernetes
+kube = { version = "0.89", features = ["runtime", "derive"] }
+kube-runtime = "0.89"
+k8s-openapi = { version = "0.21", features = ["v1_28"] }
+
+# Async runtime
+tokio = { version = "1.35", features = ["full", "signal"] }
+tokio-util = "0.7"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Utilities
+anyhow = "1.0"
+thiserror = "1.0"
+```
+
+---
+
+## Part 2: Core Library API (Corrected)
+
+### Actual kafka-backup-core Types
+
+The operator uses these types from `kafka-backup-core`:
+
+```rust
+use kafka_backup_core::{
+    // Configuration
+    Config, Mode, KafkaConfig, StorageConfig,
+    BackupOptions, RestoreOptions, CompressionType,
+
+    // Engines
+    BackupEngine,
+    RestoreEngine, RestoreProgress,
+
+    // Three-Phase Restore & Offset Management
+    ThreePhaseRestore, ThreePhaseReport,
+    OffsetResetExecutor, OffsetResetPlan, OffsetResetStrategy,
+    BulkOffsetReset, BulkOffsetResetConfig,
+
+    // Offset Rollback (Safety)
+    snapshot_current_offsets, rollback_offset_reset, verify_rollback,
+    OffsetSnapshot, OffsetSnapshotMetadata,
+
+    // Circuit Breaker
+    CircuitBreaker, CircuitBreakerConfig, CircuitState,
+
+    // Health & Metrics
+    HealthCheck, HealthStatus,
+    PerformanceMetrics, MetricsReport,
+
+    // Reports
+    RestoreReport, DryRunReport, BackupManifest,
+    OffsetMapping, OffsetMappingEntry,
+
+    // Errors
+    Error, Result,
+};
+```
+
+---
+
+## Part 3: Reconciler Implementation (Library-First)
+
+### File: `src/reconcilers/backup_reconciler.rs`
+
+```rust
+use std::sync::Arc;
+use kafka_backup_core::{
+    Config, Mode, KafkaConfig, StorageConfig, BackupOptions,
+    BackupEngine, CompressionType, Error as CoreError,
+    CircuitBreakerConfig,
+};
+use kube::{Api, Client};
+use tokio::sync::broadcast;
+use crate::crd::KafkaBackup;
+use crate::adapters::build_config_from_crd;
+
+/// Reconcile a KafkaBackup resource
+pub async fn reconcile_backup(
+    backup: KafkaBackup,
+    client: Client,
+    shutdown_rx: broadcast::Receiver<()>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let namespace = backup.metadata.namespace.as_deref().unwrap_or("default");
+    let name = backup.metadata.name.as_deref().unwrap_or("unknown");
+
+    // 1. VALIDATE: Check if backup spec is valid
+    if backup.spec.topics.is_empty() {
+        return Err("No topics specified in backup spec".into());
+    }
+
+    // 2. BUILD CONFIG: Convert CRD spec to kafka-backup-core Config
+    let config = build_config_from_crd(&backup, &client, namespace).await?;
+
+    // 3. CREATE ENGINE: Note - constructor is async!
+    let engine = BackupEngine::new(config).await?;
+
+    // 4. SETUP GRACEFUL SHUTDOWN
+    let engine_shutdown = engine.shutdown_receiver();
+    tokio::spawn(async move {
+        let mut shutdown_rx = shutdown_rx;
+        if shutdown_rx.recv().await.is_ok() {
+            engine.shutdown();
+        }
+    });
+
+    // 5. MONITOR HEALTH & METRICS
+    let health = engine.health();
+    let metrics = engine.metrics();
+
+    // Background task to update K8s status with progress
+    let api: Api<KafkaBackup> = Api::namespaced(client.clone(), namespace);
+    let name_clone = name.to_string();
+    tokio::spawn(async move {
+        loop {
+            let report = metrics.report();
+            let health_status = health.status();
+
+            let _ = update_progress_status(
+                &api,
+                &name_clone,
+                &report,
+                &health_status
+            ).await;
+
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+    });
+
+    // 6. EXECUTE: Call core library directly (NO subprocess!)
+    match engine.run().await {
+        Ok(()) => {
+            update_status(&client, &backup, "Completed", "Backup completed successfully").await?;
+            Ok(())
+        }
+        Err(e) => {
+            // Handle structured errors from core library
+            let message = match &e {
+                CoreError::TopicNotFound(topic) => format!("Topic not found: {}", topic),
+                CoreError::Storage(storage_err) => format!("Storage error: {}", storage_err),
+                CoreError::Kafka(kafka_err) => format!("Kafka error: {}", kafka_err),
+                CoreError::Connection(msg) => format!("Connection error: {}", msg),
+                _ => e.to_string(),
+            };
+            update_status(&client, &backup, "Failed", &message).await?;
+            Err(Box::new(e))
+        }
+    }
+}
+```
+
+---
+
+## Part 4: Graceful Shutdown
+
+### Signal Handling in main.rs
+
+```rust
+use tokio::signal;
+use tokio::sync::broadcast;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize tracing
+    tracing_subscriber::fmt::init();
+
+    // Create shutdown channel
+    let (shutdown_tx, _) = broadcast::channel::<()>(1);
+
+    // Spawn signal handler
+    let shutdown_tx_clone = shutdown_tx.clone();
+    tokio::spawn(async move {
+        shutdown_signal().await;
+        tracing::info!("Shutdown signal received, initiating graceful shutdown...");
+        let _ = shutdown_tx_clone.send(());
+    });
+
+    // Run operator with shutdown receiver
+    let client = kube::Client::try_default().await?;
+    run_controller(client, shutdown_tx.subscribe()).await?;
+
+    tracing::info!("Operator shutdown complete");
+    Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("Failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+}
+```
+
+### Engine Shutdown Integration
+
+```rust
+/// Graceful shutdown of running backup/restore engines
+pub struct EngineManager {
+    engines: Arc<Mutex<HashMap<String, Arc<BackupEngine>>>>,
+    shutdown_tx: broadcast::Sender<()>,
+}
+
+impl EngineManager {
+    pub fn new(shutdown_tx: broadcast::Sender<()>) -> Self {
+        Self {
+            engines: Arc::new(Mutex::new(HashMap::new())),
+            shutdown_tx,
+        }
+    }
+
+    pub async fn register_engine(&self, name: &str, engine: Arc<BackupEngine>) {
+        let mut engines = self.engines.lock().await;
+        engines.insert(name.to_string(), engine);
+    }
+
+    pub async fn shutdown_all(&self) {
+        let engines = self.engines.lock().await;
+        for (name, engine) in engines.iter() {
+            tracing::info!("Shutting down engine: {}", name);
+            engine.shutdown();
+        }
+        // Wait for engines to complete gracefully
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    }
+}
+```
+
+---
+
+## Part 5: Resumable Operations (Checkpointing)
+
+### CRD Spec Addition
+
+```yaml
+spec:
+  # ... existing fields ...
+
+  checkpoint:
+    # Enable checkpointing for resumable operations
+    enabled: true
+    # Interval between checkpoint saves (seconds)
+    intervalSecs: 30
+    # PVC to store checkpoint state (defaults to backup storage)
+    storage:
+      pvcName: "kafka-backup-checkpoints"
+      subPath: "checkpoints/"
+```
+
+### Rust Implementation
+
+```rust
+/// Build config with checkpoint support
+fn build_backup_options(spec: &KafkaBackupSpec) -> BackupOptions {
+    BackupOptions {
+        compression: spec.compression.clone().into(),
+        compression_level: spec.compression_level.unwrap_or(3),
+
+        // Checkpointing for resumable backups
+        continuous: spec.checkpoint.as_ref().map(|c| c.enabled).unwrap_or(false),
+        checkpoint_interval_secs: spec.checkpoint
+            .as_ref()
+            .map(|c| c.interval_secs)
+            .unwrap_or(30),
+        sync_interval_secs: spec.checkpoint
+            .as_ref()
+            .map(|c| c.interval_secs)
+            .unwrap_or(60),
+
+        // Enable offset headers for three-phase restore
+        include_offset_headers: true,
+
+        ..Default::default()
+    }
+}
+
+/// Resume from checkpoint if available
+pub async fn reconcile_with_resume(
+    backup: KafkaBackup,
+    client: Client,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = build_config_from_crd(&backup, &client).await?;
+
+    // Check for existing checkpoint
+    let checkpoint_path = format!(
+        "{}/checkpoints/{}.json",
+        config.storage.path(),
+        backup.metadata.name.as_deref().unwrap_or("unknown")
+    );
+
+    // Engine automatically resumes from checkpoint if found
+    let engine = BackupEngine::new(config).await?;
+
+    tracing::info!(
+        "Starting backup (checkpoint enabled: {})",
+        backup.spec.checkpoint.as_ref().map(|c| c.enabled).unwrap_or(false)
+    );
+
+    engine.run().await?;
+    Ok(())
+}
+```
+
+### Status Tracking for Resumable Operations
+
+```rust
+/// Enhanced status for resumable operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KafkaBackupStatus {
+    pub phase: String,
+    pub message: Option<String>,
+    pub timestamp: String,
+
+    // Progress tracking
+    pub records_processed: Option<u64>,
+    pub bytes_processed: Option<u64>,
+    pub segments_completed: Option<u64>,
+
+    // Checkpoint info
+    pub checkpoint_enabled: bool,
+    pub last_checkpoint_time: Option<String>,
+    pub resumable: bool,
+
+    // Performance
+    pub throughput_records_per_sec: Option<f64>,
+    pub throughput_bytes_per_sec: Option<f64>,
+}
+```
+
+---
+
+## Part 6: Rate Limiting
+
+### CRD Spec Addition
+
+```yaml
+spec:
+  # ... existing fields ...
+
+  rateLimiting:
+    # Maximum records per second (0 = unlimited)
+    recordsPerSec: 50000
+    # Maximum bytes per second (0 = unlimited)
+    bytesPerSec: 104857600  # 100 MB/s
+    # Maximum concurrent partitions being processed
+    maxConcurrentPartitions: 4
+```
+
+### Rust Implementation
+
+```rust
+/// Build restore options with rate limiting
+fn build_restore_options(spec: &KafkaRestoreSpec) -> RestoreOptions {
+    RestoreOptions {
+        // PITR support
+        time_window_start: spec.pitr.as_ref().and_then(|p| p.start_timestamp),
+        time_window_end: spec.pitr.as_ref().and_then(|p| p.end_timestamp),
+
+        // Rate limiting from CRD
+        rate_limit_records_per_sec: spec.rate_limiting
+            .as_ref()
+            .and_then(|r| r.records_per_sec)
+            .filter(|&v| v > 0),
+        rate_limit_bytes_per_sec: spec.rate_limiting
+            .as_ref()
+            .and_then(|r| r.bytes_per_sec)
+            .filter(|&v| v > 0),
+        max_concurrent_partitions: spec.rate_limiting
+            .as_ref()
+            .map(|r| r.max_concurrent_partitions)
+            .unwrap_or(4),
+
+        // Batch size for producing
+        produce_batch_size: 1000,
+
+        // Consumer offset handling
+        reset_consumer_offsets: spec.offset_reset.as_ref().map(|o| o.enabled).unwrap_or(false),
+        consumer_groups: spec.offset_reset
+            .as_ref()
+            .map(|o| o.consumer_groups.clone())
+            .unwrap_or_default(),
+
+        dry_run: spec.dry_run.unwrap_or(false),
+
+        ..Default::default()
+    }
+}
+```
+
+---
+
+## Part 7: Circuit Breaker Configuration
+
+### CRD Spec Addition
+
+```yaml
+spec:
+  # ... existing fields ...
+
+  circuitBreaker:
+    # Enable circuit breaker for fault tolerance
+    enabled: true
+    # Number of failures before circuit opens
+    failureThreshold: 5
+    # Time to wait before attempting recovery (seconds)
+    resetTimeoutSecs: 60
+    # Number of successes needed to close circuit
+    successThreshold: 3
+    # Timeout for individual operations (milliseconds)
+    operationTimeoutMs: 30000
+```
+
+### Rust Implementation
+
+```rust
+use kafka_backup_core::{CircuitBreakerConfig, CircuitState};
+
+/// Build circuit breaker config from CRD
+fn build_circuit_breaker_config(spec: &CircuitBreakerSpec) -> CircuitBreakerConfig {
+    CircuitBreakerConfig {
+        failure_threshold: spec.failure_threshold.unwrap_or(5),
+        reset_timeout: std::time::Duration::from_secs(
+            spec.reset_timeout_secs.unwrap_or(60)
+        ),
+        success_threshold: spec.success_threshold.unwrap_or(3),
+        operation_timeout: std::time::Duration::from_millis(
+            spec.operation_timeout_ms.unwrap_or(30000)
+        ),
+    }
+}
+
+/// Monitor circuit breaker state and update K8s status
+async fn monitor_circuit_breaker(
+    engine: &BackupEngine,
+    api: &Api<KafkaBackup>,
+    name: &str,
+) {
+    let health = engine.health();
+
+    loop {
+        let report = health.report();
+
+        // Check circuit breaker states
+        for (component, status) in report.components.iter() {
+            if let Some(circuit_state) = &status.circuit_state {
+                match circuit_state {
+                    CircuitState::Open => {
+                        tracing::warn!(
+                            "Circuit breaker OPEN for component: {}",
+                            component
+                        );
+                        let _ = add_condition(
+                            api,
+                            name,
+                            "CircuitBreakerOpen",
+                            "True",
+                            &format!("Circuit breaker open for {}", component),
+                        ).await;
+                    }
+                    CircuitState::HalfOpen => {
+                        tracing::info!(
+                            "Circuit breaker HALF-OPEN for component: {}",
+                            component
+                        );
+                    }
+                    CircuitState::Closed => {
+                        // Normal operation
+                    }
+                }
+            }
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    }
+}
+```
+
+---
+
+## Part 8: Offset Rollback (Safety Feature)
+
+### KafkaRestore CRD Addition
+
+```yaml
+apiVersion: kafka.oso.sh/v1alpha1
+kind: KafkaRestore
+metadata:
+  name: restore-with-rollback
+spec:
+  # ... existing fields ...
+
+  offsetReset:
+    enabled: true
+    consumerGroups:
+      - "payment-processor"
+      - "order-processor"
+    strategy: "auto"  # manual | auto | dry_run
+
+  # SAFETY: Offset rollback configuration
+  rollback:
+    # Enable automatic snapshot before restore
+    snapshotBeforeRestore: true
+    # Keep snapshot for rollback capability (hours)
+    snapshotRetentionHours: 24
+    # PVC to store rollback snapshots
+    snapshotStorage:
+      pvcName: "kafka-offset-snapshots"
+    # Auto-rollback on failure
+    autoRollbackOnFailure: true
+
+status:
+  # ... existing fields ...
+
+  rollback:
+    snapshotId: "snapshot-20251203-140000"
+    snapshotTime: "2025-12-03T14:00:00Z"
+    snapshotPath: "/snapshots/restore-with-rollback/snapshot-20251203-140000.json"
+    rollbackAvailable: true
+```
+
+### Rust Implementation
+
+```rust
+use kafka_backup_core::{
+    snapshot_current_offsets, rollback_offset_reset, verify_rollback,
+    OffsetSnapshot, OffsetSnapshotMetadata,
+    ThreePhaseRestore, OffsetResetStrategy,
+};
+
+/// Execute restore with rollback safety
+pub async fn reconcile_restore_with_rollback(
+    restore: KafkaRestore,
+    client: Client,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let namespace = restore.metadata.namespace.as_deref().unwrap_or("default");
+    let name = restore.metadata.name.as_deref().unwrap_or("unknown");
+    let api: Api<KafkaRestore> = Api::namespaced(client.clone(), namespace);
+
+    let config = build_restore_config_from_crd(&restore, &client, namespace).await?;
+    let kafka_client = create_kafka_client(&config).await?;
+
+    // STEP 1: Snapshot current offsets BEFORE restore (safety)
+    let snapshot = if restore.spec.rollback.snapshot_before_restore.unwrap_or(true) {
+        let consumer_groups = restore.spec.offset_reset
+            .as_ref()
+            .map(|o| o.consumer_groups.clone())
+            .unwrap_or_default();
+
+        tracing::info!("Creating offset snapshot before restore for groups: {:?}", consumer_groups);
+
+        let snapshot = snapshot_current_offsets(&kafka_client, &consumer_groups).await?;
+
+        // Save snapshot to storage
+        let snapshot_path = save_snapshot(&snapshot, &restore).await?;
+
+        // Update status with snapshot info
+        update_rollback_status(&api, name, &snapshot, &snapshot_path).await?;
+
+        Some(snapshot)
+    } else {
+        None
+    };
+
+    // STEP 2: Execute three-phase restore
+    let orchestrator = ThreePhaseRestore::new(config)?;
+
+    let result = orchestrator.run_all_phases().await;
+
+    match result {
+        Ok(report) => {
+            tracing::info!("Restore completed successfully: {:?}", report);
+            update_status(&client, &restore, "Completed", "Restore completed").await?;
+            Ok(())
+        }
+        Err(e) => {
+            tracing::error!("Restore failed: {}", e);
+
+            // STEP 3: Auto-rollback on failure if enabled
+            if restore.spec.rollback.auto_rollback_on_failure.unwrap_or(false) {
+                if let Some(snapshot) = snapshot {
+                    tracing::warn!("Auto-rollback enabled, restoring previous offsets...");
+
+                    match rollback_offset_reset(&kafka_client, &snapshot).await {
+                        Ok(rollback_result) => {
+                            // Verify rollback succeeded
+                            let verification = verify_rollback(
+                                &kafka_client,
+                                &snapshot,
+                                &rollback_result,
+                            ).await?;
+
+                            if verification.all_matched {
+                                tracing::info!("Rollback successful, offsets restored");
+                                update_status(
+                                    &client,
+                                    &restore,
+                                    "RolledBack",
+                                    &format!("Restore failed, offsets rolled back: {}", e),
+                                ).await?;
+                            } else {
+                                tracing::error!("Rollback verification failed!");
+                                update_status(
+                                    &client,
+                                    &restore,
+                                    "RollbackFailed",
+                                    "Rollback verification failed - manual intervention required",
+                                ).await?;
+                            }
+                        }
+                        Err(rollback_err) => {
+                            tracing::error!("Rollback failed: {}", rollback_err);
+                            update_status(
+                                &client,
+                                &restore,
+                                "RollbackFailed",
+                                &format!("Restore and rollback both failed: {}", rollback_err),
+                            ).await?;
+                        }
+                    }
+                }
+            } else {
+                update_status(&client, &restore, "Failed", &e.to_string()).await?;
+            }
+
+            Err(Box::new(e))
+        }
+    }
+}
+
+/// Manual rollback command via KafkaOffsetRollback CRD
+pub async fn reconcile_offset_rollback(
+    rollback: KafkaOffsetRollback,
+    client: Client,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let namespace = rollback.metadata.namespace.as_deref().unwrap_or("default");
+
+    // Load snapshot from storage
+    let snapshot = load_snapshot(&rollback.spec.snapshot_ref).await?;
+
+    // Create Kafka client
+    let kafka_client = create_kafka_client_from_spec(&rollback.spec.kafka_cluster).await?;
+
+    // Execute rollback
+    let result = rollback_offset_reset(&kafka_client, &snapshot).await?;
+
+    // Verify
+    let verification = verify_rollback(&kafka_client, &snapshot, &result).await?;
+
+    if verification.all_matched {
+        update_rollback_crd_status(&client, &rollback, "Completed", "Rollback successful").await?;
+    } else {
+        update_rollback_crd_status(
+            &client,
+            &rollback,
+            "PartiallyCompleted",
+            &format!("Rollback partially completed: {} of {} groups",
+                verification.matched_count,
+                verification.total_count
+            ),
+        ).await?;
+    }
+
+    Ok(())
+}
+```
+
+### KafkaOffsetRollback CRD (New)
+
+```yaml
+apiVersion: kafka.oso.sh/v1alpha1
+kind: KafkaOffsetRollback
+metadata:
+  name: rollback-payment-restore
+  namespace: kafka
+spec:
+  # Reference to the snapshot to restore
+  snapshotRef:
+    name: "snapshot-20251203-140000"
+    pvcName: "kafka-offset-snapshots"
+    path: "/snapshots/restore-with-rollback/snapshot-20251203-140000.json"
+
+  # Target Kafka cluster
+  kafkaCluster:
+    bootstrapServers:
+      - kafka-0.kafka:9092
+
+  # Consumer groups to rollback (empty = all in snapshot)
+  consumerGroups: []
+
+  # Dry run first
+  dryRun: false
+
+status:
+  phase: "Completed"
+  groupsRolledBack: 3
+  groupsFailed: 0
+  completedAt: "2025-12-03T15:00:00Z"
+```
+
+---
+
+## Part 9: Storage Configuration (PVC-First)
+
+### Default Storage: PersistentVolumeClaim
+
+PVC is the default storage backend - simpler to get started, no cloud credentials needed.
+
+```yaml
+apiVersion: kafka.oso.sh/v1alpha1
+kind: KafkaBackup
+metadata:
+  name: daily-backup
+  namespace: kafka
+spec:
+  kafkaCluster:
+    bootstrapServers:
+      - kafka-0.kafka:9092
+
+  topics:
+    - orders
+    - payments
+
+  # DEFAULT: PVC storage (simplest option)
+  storage:
+    type: pvc  # pvc | s3 | azure | gcs
+    pvc:
+      claimName: "kafka-backups"
+      subPath: "backups/daily/"
+      # Optional: create PVC if not exists
+      create:
+        enabled: true
+        storageClassName: "standard"
+        size: "100Gi"
+        accessModes:
+          - ReadWriteOnce
+
+  compression: zstd
+  schedule: "0 2 * * *"
+```
+
+### Alternative: Cloud Storage (S3/Azure/GCS)
+
+```yaml
+spec:
+  storage:
+    # Option 1: S3-compatible storage
+    type: s3
+    s3:
+      bucket: "kafka-backups"
+      region: "us-east-1"
+      endpoint: ""  # Optional: for MinIO, Ceph, etc.
+      prefix: "prod/daily/"
+      credentialsSecret:
+        name: "aws-credentials"
+        accessKeyIdKey: "AWS_ACCESS_KEY_ID"
+        secretAccessKeyKey: "AWS_SECRET_ACCESS_KEY"
+
+    # Option 2: Azure Blob Storage
+    type: azure
+    azure:
+      container: "kafka-backups"
+      accountName: "mystorageaccount"
+      prefix: "prod/daily/"
+      credentialsSecret:
+        name: "azure-credentials"
+        accountKeyKey: "AZURE_STORAGE_KEY"
+
+    # Option 3: Google Cloud Storage
+    type: gcs
+    gcs:
+      bucket: "kafka-backups"
+      prefix: "prod/daily/"
+      credentialsSecret:
+        name: "gcp-credentials"
+        serviceAccountJsonKey: "SERVICE_ACCOUNT_JSON"
+```
+
+### Rust Storage Adapter
+
+```rust
+use kafka_backup_core::{StorageConfig, FilesystemBackend, S3Backend, AzureBackend, GcsBackend};
+
+/// Build storage config from CRD (PVC-first)
+pub async fn build_storage_config(
+    storage_spec: &StorageSpec,
+    client: &Client,
+    namespace: &str,
+) -> Result<StorageConfig, Box<dyn std::error::Error>> {
+    match &storage_spec.storage_type {
+        StorageType::Pvc => {
+            // PVC: Mount path in the operator pod
+            let pvc = storage_spec.pvc.as_ref()
+                .ok_or("PVC config required when type=pvc")?;
+
+            // Ensure PVC exists or create it
+            if let Some(create) = &pvc.create {
+                if create.enabled {
+                    ensure_pvc_exists(client, namespace, pvc).await?;
+                }
+            }
+
+            // Use filesystem backend pointing to mounted PVC
+            let mount_path = format!("/data/{}/{}", pvc.claim_name, pvc.sub_path.as_deref().unwrap_or(""));
+
+            Ok(StorageConfig::Filesystem {
+                path: mount_path,
+            })
+        }
+
+        StorageType::S3 => {
+            let s3 = storage_spec.s3.as_ref()
+                .ok_or("S3 config required when type=s3")?;
+
+            // Fetch credentials from K8s Secret
+            let (access_key, secret_key) = get_s3_credentials(
+                client,
+                namespace,
+                &s3.credentials_secret,
+            ).await?;
+
+            Ok(StorageConfig::S3 {
+                bucket: s3.bucket.clone(),
+                region: s3.region.clone(),
+                endpoint: s3.endpoint.clone(),
+                prefix: s3.prefix.clone(),
+                access_key_id: access_key,
+                secret_access_key: secret_key,
+            })
+        }
+
+        StorageType::Azure => {
+            let azure = storage_spec.azure.as_ref()
+                .ok_or("Azure config required when type=azure")?;
+
+            let account_key = get_azure_credentials(
+                client,
+                namespace,
+                &azure.credentials_secret,
+            ).await?;
+
+            Ok(StorageConfig::Azure {
+                container: azure.container.clone(),
+                account_name: azure.account_name.clone(),
+                account_key,
+                prefix: azure.prefix.clone(),
+            })
+        }
+
+        StorageType::Gcs => {
+            let gcs = storage_spec.gcs.as_ref()
+                .ok_or("GCS config required when type=gcs")?;
+
+            let service_account_json = get_gcs_credentials(
+                client,
+                namespace,
+                &gcs.credentials_secret,
+            ).await?;
+
+            Ok(StorageConfig::Gcs {
+                bucket: gcs.bucket.clone(),
+                prefix: gcs.prefix.clone(),
+                service_account_json,
+            })
+        }
+    }
+}
+
+/// Ensure PVC exists, create if configured
+async fn ensure_pvc_exists(
+    client: &Client,
+    namespace: &str,
+    pvc_spec: &PvcStorageSpec,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pvc_api: Api<PersistentVolumeClaim> = Api::namespaced(client.clone(), namespace);
+
+    match pvc_api.get(&pvc_spec.claim_name).await {
+        Ok(_) => {
+            tracing::debug!("PVC {} already exists", pvc_spec.claim_name);
+            Ok(())
+        }
+        Err(kube::Error::Api(err)) if err.code == 404 => {
+            if let Some(create) = &pvc_spec.create {
+                if create.enabled {
+                    tracing::info!("Creating PVC {}", pvc_spec.claim_name);
+
+                    let pvc = PersistentVolumeClaim {
+                        metadata: ObjectMeta {
+                            name: Some(pvc_spec.claim_name.clone()),
+                            namespace: Some(namespace.to_string()),
+                            ..Default::default()
+                        },
+                        spec: Some(PersistentVolumeClaimSpec {
+                            access_modes: Some(create.access_modes.clone()),
+                            storage_class_name: create.storage_class_name.clone(),
+                            resources: Some(ResourceRequirements {
+                                requests: Some({
+                                    let mut map = BTreeMap::new();
+                                    map.insert("storage".to_string(), Quantity(create.size.clone()));
+                                    map
+                                }),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    };
+
+                    pvc_api.create(&PostParams::default(), &pvc).await?;
+                    Ok(())
+                } else {
+                    Err(format!("PVC {} does not exist and create.enabled=false", pvc_spec.claim_name).into())
+                }
+            } else {
+                Err(format!("PVC {} does not exist", pvc_spec.claim_name).into())
+            }
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+```
+
+### Operator Deployment with PVC Mount
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-backup-operator
+  namespace: kafka-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-backup-operator
+  template:
+    metadata:
+      labels:
+        app: kafka-backup-operator
+    spec:
+      serviceAccountName: kafka-backup-operator
+      containers:
+      - name: operator
+        image: osodevops/kafka-backup-operator:0.1.0
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+        volumeMounts:
+        # Mount backup PVCs here
+        - name: kafka-backups
+          mountPath: /data/kafka-backups
+        - name: kafka-offset-snapshots
+          mountPath: /data/kafka-offset-snapshots
+        env:
+        - name: RUST_LOG
+          value: "info"
+      volumes:
+      - name: kafka-backups
+        persistentVolumeClaim:
+          claimName: kafka-backups
+      - name: kafka-offset-snapshots
+        persistentVolumeClaim:
+          claimName: kafka-offset-snapshots
+```
+
+---
+
+## Part 10: Complete CRD Reference
+
+### KafkaBackup CRD (Full Schema)
+
+```yaml
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: kafkabackups.kafka.oso.sh
+spec:
+  group: kafka.oso.sh
+  names:
+    kind: KafkaBackup
+    plural: kafkabackups
+    singular: kafkabackup
+    shortNames:
+      - kb
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - kafkaCluster
+                - topics
+                - storage
+              properties:
+                # Kafka connection
+                kafkaCluster:
+                  type: object
+                  required:
+                    - bootstrapServers
+                  properties:
+                    bootstrapServers:
+                      type: array
+                      items:
+                        type: string
+                    securityProtocol:
+                      type: string
+                      enum: ["PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"]
+                      default: "PLAINTEXT"
+                    tlsSecret:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        caKey:
+                          type: string
+                        certKey:
+                          type: string
+                        keyKey:
+                          type: string
+                    saslSecret:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        mechanism:
+                          type: string
+                          enum: ["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"]
+                        usernameKey:
+                          type: string
+                        passwordKey:
+                          type: string
+
+                # Topics to backup
+                topics:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+
+                # Storage configuration (PVC default)
+                storage:
+                  type: object
+                  required:
+                    - type
+                  properties:
+                    type:
+                      type: string
+                      enum: ["pvc", "s3", "azure", "gcs"]
+                      default: "pvc"
+                    pvc:
+                      type: object
+                      properties:
+                        claimName:
+                          type: string
+                        subPath:
+                          type: string
+                        create:
+                          type: object
+                          properties:
+                            enabled:
+                              type: boolean
+                              default: false
+                            storageClassName:
+                              type: string
+                            size:
+                              type: string
+                              default: "100Gi"
+                            accessModes:
+                              type: array
+                              items:
+                                type: string
+                    s3:
+                      type: object
+                      properties:
+                        bucket:
+                          type: string
+                        region:
+                          type: string
+                        endpoint:
+                          type: string
+                        prefix:
+                          type: string
+                        credentialsSecret:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            accessKeyIdKey:
+                              type: string
+                            secretAccessKeyKey:
+                              type: string
+                    # azure and gcs similar...
+
+                # Compression
+                compression:
+                  type: string
+                  enum: ["none", "lz4", "zstd"]
+                  default: "zstd"
+                compressionLevel:
+                  type: integer
+                  minimum: 1
+                  maximum: 22
+                  default: 3
+
+                # Schedule (cron format)
+                schedule:
+                  type: string
+
+                # Checkpointing for resumable operations
+                checkpoint:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    intervalSecs:
+                      type: integer
+                      default: 30
+                    storage:
+                      type: object
+                      properties:
+                        pvcName:
+                          type: string
+                        subPath:
+                          type: string
+
+                # Rate limiting
+                rateLimiting:
+                  type: object
+                  properties:
+                    recordsPerSec:
+                      type: integer
+                      default: 0
+                    bytesPerSec:
+                      type: integer
+                      default: 0
+                    maxConcurrentPartitions:
+                      type: integer
+                      default: 4
+
+                # Circuit breaker
+                circuitBreaker:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    failureThreshold:
+                      type: integer
+                      default: 5
+                    resetTimeoutSecs:
+                      type: integer
+                      default: 60
+                    successThreshold:
+                      type: integer
+                      default: 3
+                    operationTimeoutMs:
+                      type: integer
+                      default: 30000
+
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: ["Pending", "Running", "Completed", "Failed", "RolledBack"]
+                message:
+                  type: string
+                lastBackupTime:
+                  type: string
+                  format: date-time
+                nextScheduledBackup:
+                  type: string
+                  format: date-time
+                recordsProcessed:
+                  type: integer
+                bytesProcessed:
+                  type: integer
+                segmentsCompleted:
+                  type: integer
+                checkpointEnabled:
+                  type: boolean
+                lastCheckpointTime:
+                  type: string
+                  format: date-time
+                resumable:
+                  type: boolean
+                throughputRecordsPerSec:
+                  type: number
+                throughputBytesPerSec:
+                  type: number
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Last Backup
+          type: string
+          jsonPath: .status.lastBackupTime
+        - name: Records
+          type: integer
+          jsonPath: .status.recordsProcessed
+        - name: Resumable
+          type: boolean
+          jsonPath: .status.resumable
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+```
+
+---
+
+## Part 11: Quick Start Examples
+
+### Example 1: Simple PVC Backup (Default)
+
+```yaml
+apiVersion: kafka.oso.sh/v1alpha1
+kind: KafkaBackup
+metadata:
+  name: simple-backup
+  namespace: kafka
+spec:
+  kafkaCluster:
+    bootstrapServers:
+      - kafka:9092
+  topics:
+    - orders
+    - events
+  storage:
+    type: pvc
+    pvc:
+      claimName: kafka-backups
+      create:
+        enabled: true
+        size: "50Gi"
+  schedule: "0 */6 * * *"  # Every 6 hours
+```
+
+### Example 2: Production Backup with All Features
+
+```yaml
+apiVersion: kafka.oso.sh/v1alpha1
+kind: KafkaBackup
+metadata:
+  name: prod-backup
+  namespace: kafka
+spec:
+  kafkaCluster:
+    bootstrapServers:
+      - kafka-0.kafka:9092
+      - kafka-1.kafka:9092
+      - kafka-2.kafka:9092
+    securityProtocol: SASL_SSL
+    tlsSecret:
+      name: kafka-tls
+      caKey: ca.crt
+    saslSecret:
+      name: kafka-sasl
+      mechanism: SCRAM-SHA-512
+      usernameKey: username
+      passwordKey: password
+
+  topics:
+    - orders
+    - payments
+    - inventory
+    - notifications
+
+  storage:
+    type: s3
+    s3:
+      bucket: "prod-kafka-backups"
+      region: "us-east-1"
+      prefix: "daily/"
+      credentialsSecret:
+        name: aws-creds
+        accessKeyIdKey: AWS_ACCESS_KEY_ID
+        secretAccessKeyKey: AWS_SECRET_ACCESS_KEY
+
+  compression: zstd
+  compressionLevel: 6
+
+  schedule: "0 2 * * *"
+
+  checkpoint:
+    enabled: true
+    intervalSecs: 60
+
+  rateLimiting:
+    recordsPerSec: 100000
+    bytesPerSec: 209715200  # 200 MB/s
+    maxConcurrentPartitions: 8
+
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 3
+    resetTimeoutSecs: 120
+```
+
+### Example 3: Restore with Rollback Safety
+
+```yaml
+apiVersion: kafka.oso.sh/v1alpha1
+kind: KafkaRestore
+metadata:
+  name: pitr-restore
+  namespace: kafka
+spec:
+  backupRef:
+    name: prod-backup
+
+  kafkaCluster:
+    bootstrapServers:
+      - kafka:9092
+
+  topics:
+    - payments
+
+  pitr:
+    startTimestamp: 1733234400000  # 2025-12-03T14:00:00Z
+    endTimestamp: 1733238000000    # 2025-12-03T15:00:00Z
+
+  offsetReset:
+    enabled: true
+    consumerGroups:
+      - payment-processor
+      - payment-reconciler
+    strategy: auto
+
+  rollback:
+    snapshotBeforeRestore: true
+    snapshotRetentionHours: 48
+    autoRollbackOnFailure: true
+    snapshotStorage:
+      pvcName: kafka-offset-snapshots
+
+  rateLimiting:
+    recordsPerSec: 50000
+    maxConcurrentPartitions: 4
+
+  dryRun: false
+```
+
+---
+
+## Part 12: Summary of Changes from Revision 2
+
+| Feature | Revision 2 | Revision 3 |
+|---------|------------|------------|
+| **Default Storage** | S3 | PVC (Kubernetes-native) |
+| **Graceful Shutdown** | Not specified | SIGTERM handling with engine.shutdown() |
+| **Resumable Operations** | Not specified | Checkpoint support with PVC storage |
+| **Rate Limiting** | Not specified | recordsPerSec, bytesPerSec, maxConcurrentPartitions |
+| **Circuit Breaker** | Not specified | Configurable failure/success thresholds |
+| **Offset Rollback** | Not specified | snapshot_current_offsets() + rollback_offset_reset() |
+| **API Corrections** | execute() | run() (matches actual core API) |
+| **Constructor** | sync | async (BackupEngine::new().await) |
+
+---
+
+## Recommended Reading
+
+- [kafka-backup-core API Reference](https://docs.rs/kafka-backup-core) - Full library documentation
+- [Kubernetes Operator Pattern](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/)
+- [kube-rs Documentation](https://kube.rs/) - Rust Kubernetes client
+- [Graceful Shutdown in Kubernetes](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination)

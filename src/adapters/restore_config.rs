@@ -6,9 +6,7 @@ use std::collections::HashMap;
 
 use kube::Client;
 
-use crate::crd::{
-    BackupRef, KafkaRestore, PitrSpec, RollbackSpec,
-};
+use crate::crd::{BackupRef, KafkaRestore, PitrSpec, RollbackSpec};
 use crate::error::Result;
 
 use super::backup_config::{
@@ -89,31 +87,32 @@ pub async fn build_restore_config(
     let pitr = restore.spec.pitr.as_ref().map(build_pitr_config);
 
     // Build rollback config
-    let rollback = restore
-        .spec
-        .rollback
-        .as_ref()
-        .map(build_rollback_config);
+    let rollback = restore.spec.rollback.as_ref().map(build_rollback_config);
 
     // Build rate limiting
-    let rate_limiting = restore.spec.rate_limiting.as_ref().map(|r| {
-        ResolvedRateLimitingConfig {
+    let rate_limiting = restore
+        .spec
+        .rate_limiting
+        .as_ref()
+        .map(|r| ResolvedRateLimitingConfig {
             records_per_sec: r.records_per_sec,
             bytes_per_sec: r.bytes_per_sec,
             max_concurrent_partitions: r.max_concurrent_partitions,
-        }
-    });
+        });
 
     // Build circuit breaker
-    let circuit_breaker = restore.spec.circuit_breaker.as_ref().map(|c| {
-        ResolvedCircuitBreakerConfig {
-            enabled: c.enabled,
-            failure_threshold: c.failure_threshold,
-            reset_timeout_secs: c.reset_timeout_secs,
-            success_threshold: c.success_threshold,
-            operation_timeout_ms: c.operation_timeout_ms,
-        }
-    });
+    let circuit_breaker =
+        restore
+            .spec
+            .circuit_breaker
+            .as_ref()
+            .map(|c| ResolvedCircuitBreakerConfig {
+                enabled: c.enabled,
+                failure_threshold: c.failure_threshold,
+                reset_timeout_secs: c.reset_timeout_secs,
+                success_threshold: c.success_threshold,
+                operation_timeout_ms: c.operation_timeout_ms,
+            });
 
     Ok(ResolvedRestoreConfig {
         backup_source,
@@ -142,7 +141,10 @@ async fn resolve_backup_ref(
     }
 
     // Otherwise, reference the KafkaBackup resource
-    let backup_namespace = backup_ref.namespace.clone().unwrap_or_else(|| namespace.to_string());
+    let backup_namespace = backup_ref
+        .namespace
+        .clone()
+        .unwrap_or_else(|| namespace.to_string());
 
     Ok(ResolvedBackupSource::BackupResource {
         name: backup_ref.name.clone(),
@@ -153,13 +155,13 @@ async fn resolve_backup_ref(
 
 fn build_pitr_config(pitr: &PitrSpec) -> ResolvedPitrConfig {
     // Prefer explicit timestamps, fall back to DateTime conversion
-    let start_timestamp_ms = pitr.start_timestamp.or_else(|| {
-        pitr.start_time.map(|dt| dt.timestamp_millis())
-    });
+    let start_timestamp_ms = pitr
+        .start_timestamp
+        .or_else(|| pitr.start_time.map(|dt| dt.timestamp_millis()));
 
-    let end_timestamp_ms = pitr.end_timestamp.or_else(|| {
-        pitr.end_time.map(|dt| dt.timestamp_millis())
-    });
+    let end_timestamp_ms = pitr
+        .end_timestamp
+        .or_else(|| pitr.end_time.map(|dt| dt.timestamp_millis()));
 
     ResolvedPitrConfig {
         start_timestamp_ms,

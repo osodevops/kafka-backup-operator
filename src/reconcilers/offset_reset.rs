@@ -6,11 +6,11 @@ use std::time::Duration;
 
 use chrono::Utc;
 use kafka_backup_core::config::KafkaConfig as CoreKafkaConfig;
-use kafka_backup_core::config::{SecurityConfig, SecurityProtocol, SaslMechanism, TopicSelection};
-use kafka_backup_core::kafka::KafkaClient;
+use kafka_backup_core::config::{SaslMechanism, SecurityConfig, SecurityProtocol, TopicSelection};
 use kafka_backup_core::kafka::consumer_groups::{
-    fetch_offsets, commit_offsets, offsets_for_times, CommittedOffset,
+    commit_offsets, fetch_offsets, offsets_for_times, CommittedOffset,
 };
+use kafka_backup_core::kafka::KafkaClient;
 use kafka_backup_core::{snapshot_current_offsets, BulkOffsetResetConfig};
 use kube::{
     api::{Patch, PatchParams},
@@ -20,7 +20,7 @@ use kube::{
 use serde_json::json;
 use tracing::{error, info, warn};
 
-use crate::adapters::{build_kafka_config, TlsFileManager, default_tls_dir};
+use crate::adapters::{build_kafka_config, default_tls_dir, TlsFileManager};
 use crate::crd::{KafkaOffsetReset, OffsetResetStrategy};
 use crate::error::{Error, Result};
 use crate::metrics;
@@ -90,11 +90,7 @@ pub async fn monitor_progress(
 }
 
 /// Execute an offset reset operation
-pub async fn execute(
-    reset: &KafkaOffsetReset,
-    client: &Client,
-    namespace: &str,
-) -> Result<Action> {
+pub async fn execute(reset: &KafkaOffsetReset, client: &Client, namespace: &str) -> Result<Action> {
     let name = reset.name_any();
     let api: Api<KafkaOffsetReset> = Api::namespaced(client.clone(), namespace);
 
@@ -122,8 +118,12 @@ pub async fn execute(
             "observedGeneration": reset.metadata.generation,
         }
     });
-    api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(running_status))
-        .await?;
+    api.patch_status(
+        &name,
+        &PatchParams::apply("kafka-backup-operator"),
+        &Patch::Merge(running_status),
+    )
+    .await?;
 
     // Create snapshot if enabled
     if reset.spec.snapshot_before_reset {
@@ -181,8 +181,12 @@ pub async fn execute(
                     }]
                 }
             });
-            api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(completed_status))
-                .await?;
+            api.patch_status(
+                &name,
+                &PatchParams::apply("kafka-backup-operator"),
+                &Patch::Merge(completed_status),
+            )
+            .await?;
 
             Ok(Action::await_change())
         }
@@ -207,8 +211,12 @@ pub async fn execute(
                     }]
                 }
             });
-            api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(failed_status))
-                .await?;
+            api.patch_status(
+                &name,
+                &PatchParams::apply("kafka-backup-operator"),
+                &Patch::Merge(failed_status),
+            )
+            .await?;
 
             Ok(Action::requeue(Duration::from_secs(300)))
         }
@@ -242,8 +250,12 @@ async fn execute_dry_run(
             }]
         }
     });
-    api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(status))
-        .await?;
+    api.patch_status(
+        &name,
+        &PatchParams::apply("kafka-backup-operator"),
+        &Patch::Merge(status),
+    )
+    .await?;
 
     Ok(Action::await_change())
 }
@@ -297,7 +309,9 @@ async fn execute_reset_internal(
 
     // Create and connect KafkaClient
     let kafka_client = KafkaClient::new(core_kafka_config);
-    kafka_client.connect().await
+    kafka_client
+        .connect()
+        .await
         .map_err(|e| Error::Core(format!("Failed to connect to Kafka: {}", e)))?;
 
     info!(name = %name, "Connected to Kafka cluster");
@@ -310,7 +324,9 @@ async fn execute_reset_internal(
             &kafka_client,
             &reset.spec.consumer_groups,
             bootstrap_servers.clone(),
-        ).await {
+        )
+        .await
+        {
             Ok(snapshot) => {
                 let snapshot_id = snapshot.snapshot_id.clone();
                 info!(
@@ -374,7 +390,10 @@ async fn execute_reset_internal(
                 error!(name = %name, group = %group_id, error = %e, "Group reset failed");
 
                 if !reset.spec.continue_on_error {
-                    return Err(Error::Core(format!("Failed to reset group {}: {}", group_id, e)));
+                    return Err(Error::Core(format!(
+                        "Failed to reset group {}: {}",
+                        group_id, e
+                    )));
                 }
             }
         }
@@ -417,7 +436,11 @@ fn build_core_security_config(
                 "SCRAM-SHA-512" => Some(SaslMechanism::ScramSha512),
                 _ => None,
             };
-            (mechanism, Some(sasl.username.clone()), Some(sasl.password.clone()))
+            (
+                mechanism,
+                Some(sasl.username.clone()),
+                Some(sasl.password.clone()),
+            )
         }
         None => (None, None, None),
     };
@@ -469,7 +492,8 @@ async fn reset_consumer_group(
         &reset.spec.reset_strategy,
         reset.spec.reset_timestamp,
         reset.spec.reset_offset,
-    ).await?;
+    )
+    .await?;
 
     // Convert to tuple format expected by commit_offsets: (topic, partition, offset, metadata)
     let offsets_tuples: Vec<(String, i32, i64, Option<String>)> = target_offsets
@@ -498,12 +522,16 @@ async fn calculate_target_offsets(
         let new_offset = match strategy {
             OffsetResetStrategy::ToEarliest => {
                 // Get earliest offset for partition
-                let (earliest, _) = kafka_client.get_offsets(&offset.topic, offset.partition).await?;
+                let (earliest, _) = kafka_client
+                    .get_offsets(&offset.topic, offset.partition)
+                    .await?;
                 earliest
             }
             OffsetResetStrategy::ToLatest => {
                 // Get latest offset for partition
-                let (_, latest) = kafka_client.get_offsets(&offset.topic, offset.partition).await?;
+                let (_, latest) = kafka_client
+                    .get_offsets(&offset.topic, offset.partition)
+                    .await?;
                 latest
             }
             OffsetResetStrategy::ToTimestamp => {
@@ -565,8 +593,12 @@ pub async fn update_status_failed(
         }
     });
 
-    api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(status))
-        .await?;
+    api.patch_status(
+        &name,
+        &PatchParams::apply("kafka-backup-operator"),
+        &Patch::Merge(status),
+    )
+    .await?;
 
     Ok(())
 }

@@ -108,7 +108,11 @@ pub fn to_core_security_config_with_tls(
                 "SCRAM-SHA-512" => Some(SaslMechanism::ScramSha512),
                 _ => None,
             };
-            (mechanism, Some(sasl.username.clone()), Some(sasl.password.clone()))
+            (
+                mechanism,
+                Some(sasl.username.clone()),
+                Some(sasl.password.clone()),
+            )
         }
         None => (None, None, None),
     };
@@ -152,35 +156,41 @@ fn to_core_storage_config(resolved: &ResolvedStorage) -> StorageBackendConfig {
         },
         ResolvedStorage::Azure(azure) => {
             // Determine authentication method based on resolved auth
-            let (account_key, use_workload_identity, client_id, tenant_id, client_secret, sas_token) =
-                match &azure.auth {
-                    super::storage_config::AzureAuthMethod::AccountKey(key) => {
-                        (Some(key.clone()), None, None, None, None, None)
-                    }
-                    super::storage_config::AzureAuthMethod::SasToken(token) => {
-                        (None, None, None, None, None, Some(token.clone()))
-                    }
-                    super::storage_config::AzureAuthMethod::ServicePrincipal {
-                        client_id,
-                        tenant_id,
-                        client_secret,
-                    } => (
-                        None,
-                        None,
-                        Some(client_id.clone()),
-                        Some(tenant_id.clone()),
-                        Some(client_secret.clone()),
-                        None,
-                    ),
-                    super::storage_config::AzureAuthMethod::WorkloadIdentity => {
-                        (None, Some(true), None, None, None, None)
-                    }
-                    super::storage_config::AzureAuthMethod::DefaultCredential => {
-                        // DefaultCredential uses Azure SDK's default credential chain
-                        // No explicit auth fields needed - the SDK will auto-detect
-                        (None, None, None, None, None, None)
-                    }
-                };
+            let (
+                account_key,
+                use_workload_identity,
+                client_id,
+                tenant_id,
+                client_secret,
+                sas_token,
+            ) = match &azure.auth {
+                super::storage_config::AzureAuthMethod::AccountKey(key) => {
+                    (Some(key.clone()), None, None, None, None, None)
+                }
+                super::storage_config::AzureAuthMethod::SasToken(token) => {
+                    (None, None, None, None, None, Some(token.clone()))
+                }
+                super::storage_config::AzureAuthMethod::ServicePrincipal {
+                    client_id,
+                    tenant_id,
+                    client_secret,
+                } => (
+                    None,
+                    None,
+                    Some(client_id.clone()),
+                    Some(tenant_id.clone()),
+                    Some(client_secret.clone()),
+                    None,
+                ),
+                super::storage_config::AzureAuthMethod::WorkloadIdentity => {
+                    (None, Some(true), None, None, None, None)
+                }
+                super::storage_config::AzureAuthMethod::DefaultCredential => {
+                    // DefaultCredential uses Azure SDK's default credential chain
+                    // No explicit auth fields needed - the SDK will auto-detect
+                    (None, None, None, None, None, None)
+                }
+            };
 
             StorageBackendConfig::Azure {
                 account_name: azure.account_name.clone(),
@@ -219,7 +229,7 @@ fn to_core_backup_options(resolved: &ResolvedBackupConfig) -> BackupOptions {
 
     BackupOptions {
         segment_max_bytes: 128 * 1024 * 1024, // 128MB default
-        segment_max_interval_ms: 60_000,       // 60s default
+        segment_max_interval_ms: 60_000,      // 60s default
         compression,
         compression_level: resolved.compression.level,
         start_offset: kafka_backup_core::config::StartOffset::Earliest,
@@ -244,8 +254,16 @@ fn to_core_restore_options(resolved: &ResolvedRestoreConfig) -> RestoreOptions {
     let (rate_limit_records_per_sec, rate_limit_bytes_per_sec, max_concurrent_partitions) =
         match &resolved.rate_limiting {
             Some(rl) => (
-                if rl.records_per_sec > 0 { Some(rl.records_per_sec) } else { None },
-                if rl.bytes_per_sec > 0 { Some(rl.bytes_per_sec) } else { None },
+                if rl.records_per_sec > 0 {
+                    Some(rl.records_per_sec)
+                } else {
+                    None
+                },
+                if rl.bytes_per_sec > 0 {
+                    Some(rl.bytes_per_sec)
+                } else {
+                    None
+                },
                 rl.max_concurrent_partitions,
             ),
             None => (None, None, 4),

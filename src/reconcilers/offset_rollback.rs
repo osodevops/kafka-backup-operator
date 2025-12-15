@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use kafka_backup_core::config::KafkaConfig as CoreKafkaConfig;
-use kafka_backup_core::config::{SecurityConfig, SecurityProtocol, SaslMechanism, TopicSelection};
+use kafka_backup_core::config::{SaslMechanism, SecurityConfig, SecurityProtocol, TopicSelection};
 use kafka_backup_core::kafka::KafkaClient;
 use kafka_backup_core::{rollback_offset_reset, verify_rollback, OffsetSnapshot};
 use kube::{
@@ -18,7 +18,7 @@ use kube::{
 use serde_json::json;
 use tracing::{error, info, warn};
 
-use crate::adapters::{build_kafka_config, TlsFileManager, default_tls_dir};
+use crate::adapters::{build_kafka_config, default_tls_dir, TlsFileManager};
 use crate::crd::KafkaOffsetRollback;
 use crate::error::{Error, Result};
 
@@ -32,9 +32,7 @@ pub fn validate(rollback: &KafkaOffsetRollback) -> Result<()> {
     }
 
     // Validate snapshot reference
-    if rollback.spec.snapshot_ref.name.is_empty()
-        && rollback.spec.snapshot_ref.path.is_none()
-    {
+    if rollback.spec.snapshot_ref.name.is_empty() && rollback.spec.snapshot_ref.path.is_none() {
         return Err(Error::validation(
             "Either snapshot name or path must be specified",
         ));
@@ -85,8 +83,12 @@ pub async fn execute(
             "observedGeneration": rollback.metadata.generation,
         }
     });
-    api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(running_status))
-        .await?;
+    api.patch_status(
+        &name,
+        &PatchParams::apply("kafka-backup-operator"),
+        &Patch::Merge(running_status),
+    )
+    .await?;
 
     // Execute rollback
     let start_time = std::time::Instant::now();
@@ -119,8 +121,12 @@ pub async fn execute(
                     }]
                 }
             });
-            api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(completed_status))
-                .await?;
+            api.patch_status(
+                &name,
+                &PatchParams::apply("kafka-backup-operator"),
+                &Patch::Merge(completed_status),
+            )
+            .await?;
 
             Ok(Action::await_change())
         }
@@ -141,8 +147,12 @@ pub async fn execute(
                     }]
                 }
             });
-            api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(failed_status))
-                .await?;
+            api.patch_status(
+                &name,
+                &PatchParams::apply("kafka-backup-operator"),
+                &Patch::Merge(failed_status),
+            )
+            .await?;
 
             Ok(Action::requeue(Duration::from_secs(300)))
         }
@@ -175,8 +185,12 @@ async fn execute_dry_run(
             }]
         }
     });
-    api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(status))
-        .await?;
+    api.patch_status(
+        &name,
+        &PatchParams::apply("kafka-backup-operator"),
+        &Patch::Merge(status),
+    )
+    .await?;
 
     Ok(Action::await_change())
 }
@@ -203,7 +217,8 @@ async fn execute_rollback_internal(
     );
 
     // Build resolved Kafka configuration
-    let resolved_kafka = build_kafka_config(&rollback.spec.kafka_cluster, client, namespace).await?;
+    let resolved_kafka =
+        build_kafka_config(&rollback.spec.kafka_cluster, client, namespace).await?;
 
     // Create TLS file manager if TLS is configured
     let _tls_manager = if let Some(tls) = &resolved_kafka.tls {
@@ -226,17 +241,20 @@ async fn execute_rollback_internal(
 
     // Create and connect KafkaClient
     let kafka_client = KafkaClient::new(core_kafka_config);
-    kafka_client.connect().await
+    kafka_client
+        .connect()
+        .await
         .map_err(|e| Error::Core(format!("Failed to connect to Kafka: {}", e)))?;
 
     info!(name = %name, "Connected to Kafka cluster");
 
     // 1. Load snapshot from storage
-    let snapshot_path = rollback.spec.snapshot_ref.path.as_ref()
-        .ok_or_else(|| Error::SnapshotNotFound(format!(
+    let snapshot_path = rollback.spec.snapshot_ref.path.as_ref().ok_or_else(|| {
+        Error::SnapshotNotFound(format!(
             "Snapshot path not specified for '{}'",
             rollback.spec.snapshot_ref.name
-        )))?;
+        ))
+    })?;
 
     info!(name = %name, path = %snapshot_path, "Loading offset snapshot");
 
@@ -244,15 +262,15 @@ async fn execute_rollback_internal(
     // The snapshot is stored as JSON by kafka-backup-core
     let snapshot_content = tokio::fs::read_to_string(snapshot_path)
         .await
-        .map_err(|e| Error::SnapshotNotFound(format!(
-            "Failed to read snapshot at '{}': {}",
-            snapshot_path, e
-        )))?;
+        .map_err(|e| {
+            Error::SnapshotNotFound(format!(
+                "Failed to read snapshot at '{}': {}",
+                snapshot_path, e
+            ))
+        })?;
 
     let snapshot: OffsetSnapshot = serde_json::from_str(&snapshot_content)
-        .map_err(|e| Error::Core(format!(
-            "Failed to parse snapshot: {}", e
-        )))?;
+        .map_err(|e| Error::Core(format!("Failed to parse snapshot: {}", e)))?;
 
     info!(
         name = %name,
@@ -330,7 +348,11 @@ fn build_core_security_config(
                 "SCRAM-SHA-512" => Some(SaslMechanism::ScramSha512),
                 _ => None,
             };
-            (mechanism, Some(sasl.username.clone()), Some(sasl.password.clone()))
+            (
+                mechanism,
+                Some(sasl.username.clone()),
+                Some(sasl.password.clone()),
+            )
         }
         None => (None, None, None),
     };
@@ -380,8 +402,12 @@ pub async fn update_status_failed(
         }
     });
 
-    api.patch_status(&name, &PatchParams::apply("kafka-backup-operator"), &Patch::Merge(status))
-        .await?;
+    api.patch_status(
+        &name,
+        &PatchParams::apply("kafka-backup-operator"),
+        &Patch::Merge(status),
+    )
+    .await?;
 
     Ok(())
 }

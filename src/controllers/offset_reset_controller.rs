@@ -52,7 +52,9 @@ pub async fn run(client: Client, context: Arc<Context>) {
                 }
                 Err(e) => {
                     error!(error = %e, "Reconciliation error");
-                    metrics::RECONCILIATION_ERRORS.with_label_values(&["KafkaOffsetReset"]).inc();
+                    metrics::RECONCILIATION_ERRORS
+                        .with_label_values(&["KafkaOffsetReset"])
+                        .inc();
                 }
             }
         })
@@ -65,7 +67,9 @@ async fn reconcile(obj: Arc<KafkaOffsetReset>, ctx: Arc<Context>) -> Result<Acti
     let _timer = metrics::RECONCILE_DURATION
         .with_label_values(&["KafkaOffsetReset"])
         .start_timer();
-    metrics::RECONCILIATIONS.with_label_values(&["KafkaOffsetReset"]).inc();
+    metrics::RECONCILIATIONS
+        .with_label_values(&["KafkaOffsetReset"])
+        .inc();
 
     let namespace = obj.namespace().unwrap_or_else(|| "default".to_string());
     let api: Api<KafkaOffsetReset> = Api::namespaced(ctx.client.clone(), &namespace);
@@ -101,8 +105,12 @@ async fn apply(reset: Arc<KafkaOffsetReset>, ctx: Arc<Context>) -> Result<Action
                     return Ok(Action::await_change());
                 }
                 Some("Running") => {
-                    return offset_reset_reconciler::monitor_progress(&reset, &ctx.client, &namespace)
-                        .await;
+                    return offset_reset_reconciler::monitor_progress(
+                        &reset,
+                        &ctx.client,
+                        &namespace,
+                    )
+                    .await;
                 }
                 _ => {}
             }
@@ -112,8 +120,13 @@ async fn apply(reset: Arc<KafkaOffsetReset>, ctx: Arc<Context>) -> Result<Action
     // Validate the spec
     if let Err(e) = offset_reset_reconciler::validate(&reset) {
         warn!(error = %e, "Validation failed");
-        offset_reset_reconciler::update_status_failed(&reset, &ctx.client, &namespace, &e.to_string())
-            .await?;
+        offset_reset_reconciler::update_status_failed(
+            &reset,
+            &ctx.client,
+            &namespace,
+            &e.to_string(),
+        )
+        .await?;
         return Ok(Action::requeue(Duration::from_secs(300)));
     }
 
@@ -126,7 +139,9 @@ async fn cleanup(reset: Arc<KafkaOffsetReset>, _ctx: Arc<Context>) -> Result<Act
     let name = reset.name_any();
     info!(name = %name, "Cleaning up KafkaOffsetReset");
 
-    metrics::CLEANUPS.with_label_values(&["KafkaOffsetReset"]).inc();
+    metrics::CLEANUPS
+        .with_label_values(&["KafkaOffsetReset"])
+        .inc();
 
     Ok(Action::await_change())
 }
