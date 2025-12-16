@@ -1,6 +1,6 @@
 [package]
 name = "kafka-backup-operator"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 authors = ["OSO DevOps <dev@oso.sh>"]
 description = "Kubernetes Operator for OSO Kafka Backup"
@@ -11,8 +11,8 @@ keywords = ["kubernetes", "operator", "kafka", "backup", "disaster-recovery"]
 categories = ["command-line-utilities"]
 
 [dependencies]
-# Core backup library - v0.2.2 with Azure Workload Identity fix
-kafka-backup-core = { git = "https://github.com/osodevops/kafka-backup.git", tag = "v0.2.2" }
+# Core backup library - v0.2.3 with explicit federated token config
+kafka-backup-core = { git = "https://github.com/osodevops/kafka-backup.git", tag = "v0.2.3" }
 
 # Kubernetes
 kube = { version = "0.95", features = ["runtime", "derive", "client"] }
