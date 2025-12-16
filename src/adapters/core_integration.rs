@@ -183,10 +183,10 @@ fn to_core_storage_config(resolved: &ResolvedStorage) -> StorageBackendConfig {
                     None,
                 ),
                 super::storage_config::AzureAuthMethod::WorkloadIdentity => {
-                    // Read client_id from environment variable for workload identity
-                    let client_id = std::env::var("AZURE_CLIENT_ID").ok();
-                    let tenant_id = std::env::var("AZURE_TENANT_ID").ok();
-                    (None, Some(true), client_id, tenant_id, None, None)
+                    // Workload Identity: Do NOT pass client_id/tenant_id to core library.
+                    // object_store reads AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_FEDERATED_TOKEN_FILE
+                    // from environment automatically. Passing client_id triggers MSI auth instead.
+                    (None, Some(true), None, None, None, None)
                 }
                 super::storage_config::AzureAuthMethod::DefaultCredential => {
                     // DefaultCredential uses Azure SDK's default credential chain
