@@ -38,6 +38,10 @@ pub struct ResolvedRestoreConfig {
     pub circuit_breaker: Option<ResolvedCircuitBreakerConfig>,
     /// Dry run mode
     pub dry_run: bool,
+    /// Create missing topics during restore
+    pub create_topics: bool,
+    /// Default replication factor for auto-created topics
+    pub default_replication_factor: Option<i16>,
 }
 
 /// Resolved backup source
@@ -125,6 +129,8 @@ pub async fn build_restore_config(
         rate_limiting,
         circuit_breaker,
         dry_run: restore.spec.dry_run,
+        create_topics: restore.spec.create_topics,
+        default_replication_factor: restore.spec.default_replication_factor,
     })
 }
 
