@@ -66,6 +66,17 @@ pub struct KafkaRestoreSpec {
     /// Dry run mode (validate without executing)
     #[serde(default)]
     pub dry_run: bool,
+
+    /// Create missing topics during restore
+    /// When enabled, topics that exist in the backup but not in the target cluster
+    /// will be automatically created before restoring data.
+    #[serde(default)]
+    pub create_topics: bool,
+
+    /// Default replication factor for auto-created topics
+    /// If not specified, the broker's default replication factor is used.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_replication_factor: Option<i16>,
 }
 
 /// Backup reference for restore

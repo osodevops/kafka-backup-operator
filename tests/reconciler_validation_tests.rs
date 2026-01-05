@@ -296,6 +296,8 @@ fn valid_restore_spec() -> KafkaRestoreSpec {
         rate_limiting: None,
         circuit_breaker: None,
         dry_run: false,
+        create_topics: false,
+        default_replication_factor: None,
     }
 }
 

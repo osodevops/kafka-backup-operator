@@ -295,6 +295,8 @@ fn to_core_restore_options(resolved: &ResolvedRestoreConfig) -> RestoreOptions {
         consumer_groups: vec![],
         reset_consumer_offsets: false,
         offset_report: None,
+        create_topics: resolved.create_topics,
+        default_replication_factor: resolved.default_replication_factor,
     }
 }
 

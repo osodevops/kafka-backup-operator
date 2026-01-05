@@ -1,3 +1,5 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.42s
+     Running `target/debug/crdgen`
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -787,6 +789,15 @@ spec:
                     minimum: 0.0
                     type: integer
                 type: object
+              createTopics:
+                default: false
+                description: Create missing topics during restore When enabled, topics that exist in the backup but not in the target cluster will be automatically created before restoring data.
+                type: boolean
+              defaultReplicationFactor:
+                description: Default replication factor for auto-created topics If not specified, the broker's default replication factor is used.
+                format: int16
+                nullable: true
+                type: integer
               dryRun:
                 default: false
                 description: Dry run mode (validate without executing)
