@@ -6,7 +6,9 @@ use std::time::Duration;
 
 use chrono::Utc;
 use kafka_backup_core::config::KafkaConfig as CoreKafkaConfig;
-use kafka_backup_core::config::{SaslMechanism, SecurityConfig, SecurityProtocol, TopicSelection};
+use kafka_backup_core::config::{
+    ConnectionConfig, SaslMechanism, SecurityConfig, SecurityProtocol, TopicSelection,
+};
 use kafka_backup_core::kafka::consumer_groups::{
     commit_offsets, fetch_offsets, offsets_for_times, CommittedOffset,
 };
@@ -305,6 +307,7 @@ async fn execute_reset_internal(
             include: reset.spec.topics.clone(),
             exclude: vec![],
         },
+        connection: ConnectionConfig::default(),
     };
 
     // Create and connect KafkaClient

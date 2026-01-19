@@ -60,6 +60,10 @@ pub struct KafkaBackupSpec {
     /// Suspend backups (useful for maintenance)
     #[serde(default)]
     pub suspend: bool,
+
+    /// Metrics configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metrics: Option<MetricsSpec>,
 }
 
 fn default_compression() -> String {
@@ -490,6 +494,59 @@ fn default_success_threshold() -> u32 {
 
 fn default_operation_timeout() -> u64 {
     30000
+}
+
+/// Metrics configuration for Prometheus metrics server
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MetricsSpec {
+    /// Enable metrics collection (default: true)
+    #[serde(default = "default_metrics_enabled")]
+    pub enabled: bool,
+
+    /// Port for metrics HTTP server (default: 9090)
+    #[serde(default = "default_metrics_port")]
+    pub port: u16,
+
+    /// Bind address for metrics server (default: "0.0.0.0")
+    #[serde(default = "default_metrics_bind_address")]
+    pub bind_address: String,
+
+    /// Metrics endpoint path (default: "/metrics")
+    #[serde(default = "default_metrics_path")]
+    pub path: String,
+
+    /// Metrics update interval in milliseconds (default: 500)
+    #[serde(default = "default_metrics_update_interval")]
+    pub update_interval_ms: u64,
+
+    /// Maximum partition labels to prevent cardinality explosion (default: 100)
+    #[serde(default = "default_max_partition_labels")]
+    pub max_partition_labels: usize,
+}
+
+fn default_metrics_enabled() -> bool {
+    true
+}
+
+fn default_metrics_port() -> u16 {
+    9090
+}
+
+fn default_metrics_bind_address() -> String {
+    "0.0.0.0".to_string()
+}
+
+fn default_metrics_path() -> String {
+    "/metrics".to_string()
+}
+
+fn default_metrics_update_interval() -> u64 {
+    500
+}
+
+fn default_max_partition_labels() -> usize {
+    100
 }
 
 /// KafkaBackup status

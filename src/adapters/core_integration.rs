@@ -5,13 +5,13 @@
 use std::path::PathBuf;
 
 use kafka_backup_core::config::{
-    BackupOptions, CompressionType, Config, KafkaConfig, Mode, OffsetStorageBackend,
-    OffsetStorageConfig, OffsetStrategy, RestoreOptions, SaslMechanism, SecurityConfig,
-    SecurityProtocol, TopicSelection,
+    BackupOptions, CompressionType, Config, ConnectionConfig, KafkaConfig, MetricsConfig, Mode,
+    OffsetStorageBackend, OffsetStorageConfig, OffsetStrategy, RestoreOptions, SaslMechanism,
+    SecurityConfig, SecurityProtocol, TopicSelection,
 };
 use kafka_backup_core::storage::StorageBackendConfig;
 
-use super::backup_config::{ResolvedBackupConfig, ResolvedKafkaConfig};
+use super::backup_config::{ResolvedBackupConfig, ResolvedKafkaConfig, ResolvedMetricsConfig};
 use super::restore_config::ResolvedRestoreConfig;
 use super::storage_config::ResolvedStorage;
 use super::tls_files::TlsFileManager;
@@ -28,6 +28,9 @@ pub fn to_core_backup_config(
     // Build offset storage config with proper path inside the backup storage directory
     let offset_storage = build_offset_storage_config(&resolved.storage, backup_id);
 
+    // Build metrics config
+    let metrics = resolved.metrics.as_ref().map(to_core_metrics_config);
+
     let config = Config {
         mode: Mode::Backup,
         backup_id: backup_id.to_string(),
@@ -37,6 +40,7 @@ pub fn to_core_backup_config(
         backup: Some(backup_options),
         restore: None,
         offset_storage,
+        metrics,
     };
 
     config.validate()?;
@@ -62,6 +66,7 @@ pub fn to_core_restore_config(
         backup: None,
         restore: Some(restore_options),
         offset_storage: None,
+        metrics: None,
     };
 
     config.validate()?;
@@ -79,6 +84,7 @@ fn to_core_kafka_config(resolved: &ResolvedKafkaConfig, topics: &[String]) -> Ka
             include: topics.to_vec(),
             exclude: vec![],
         },
+        connection: ConnectionConfig::default(),
     }
 }
 
@@ -214,6 +220,18 @@ fn to_core_storage_config(resolved: &ResolvedStorage) -> StorageBackendConfig {
             prefix: gcs.prefix.clone(),
         },
     }
+}
+
+/// Convert resolved metrics configuration to kafka-backup-core MetricsConfig
+fn to_core_metrics_config(resolved: &ResolvedMetricsConfig) -> MetricsConfig {
+    let mut config = MetricsConfig::default();
+    config.enabled = resolved.enabled;
+    config.port = resolved.port;
+    config.bind_address = resolved.bind_address.clone();
+    config.path = resolved.path.clone();
+    config.update_interval_ms = resolved.update_interval_ms;
+    config.max_partition_labels = resolved.max_partition_labels;
+    config
 }
 
 /// Convert backup options
