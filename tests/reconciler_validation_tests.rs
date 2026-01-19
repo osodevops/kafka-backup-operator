@@ -65,6 +65,7 @@ fn valid_backup_spec() -> KafkaBackupSpec {
         rate_limiting: None,
         circuit_breaker: None,
         suspend: false,
+        metrics: None,
     }
 }
 

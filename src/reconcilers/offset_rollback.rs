@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use chrono::Utc;
 use kafka_backup_core::config::KafkaConfig as CoreKafkaConfig;
-use kafka_backup_core::config::{SaslMechanism, SecurityConfig, SecurityProtocol, TopicSelection};
+use kafka_backup_core::config::{
+    ConnectionConfig, SaslMechanism, SecurityConfig, SecurityProtocol, TopicSelection,
+};
 use kafka_backup_core::kafka::KafkaClient;
 use kafka_backup_core::{rollback_offset_reset, verify_rollback, OffsetSnapshot};
 use kube::{
@@ -237,6 +239,7 @@ async fn execute_rollback_internal(
             include: vec![],
             exclude: vec![],
         },
+        connection: ConnectionConfig::default(),
     };
 
     // Create and connect KafkaClient

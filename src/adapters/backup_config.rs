@@ -5,7 +5,8 @@
 use kube::Client;
 
 use crate::crd::{
-    CheckpointSpec, CircuitBreakerSpec, KafkaBackup, KafkaClusterSpec, RateLimitingSpec,
+    CheckpointSpec, CircuitBreakerSpec, KafkaBackup, KafkaClusterSpec, MetricsSpec,
+    RateLimitingSpec,
 };
 use crate::error::Result;
 
@@ -29,6 +30,8 @@ pub struct ResolvedBackupConfig {
     pub rate_limiting: Option<ResolvedRateLimitingConfig>,
     /// Circuit breaker settings
     pub circuit_breaker: Option<ResolvedCircuitBreakerConfig>,
+    /// Metrics settings
+    pub metrics: Option<ResolvedMetricsConfig>,
 }
 
 /// Resolved Kafka cluster configuration with credentials
@@ -81,6 +84,17 @@ pub struct ResolvedCircuitBreakerConfig {
     pub operation_timeout_ms: u64,
 }
 
+/// Resolved metrics configuration
+#[derive(Debug, Clone)]
+pub struct ResolvedMetricsConfig {
+    pub enabled: bool,
+    pub port: u16,
+    pub bind_address: String,
+    pub path: String,
+    pub update_interval_ms: u64,
+    pub max_partition_labels: usize,
+}
+
 /// Build fully resolved backup configuration from CRD
 pub async fn build_backup_config(
     backup: &KafkaBackup,
@@ -116,6 +130,9 @@ pub async fn build_backup_config(
         .as_ref()
         .map(build_circuit_breaker_config);
 
+    // Build metrics config
+    let metrics = backup.spec.metrics.as_ref().map(build_metrics_config);
+
     Ok(ResolvedBackupConfig {
         kafka,
         topics: backup.spec.topics.clone(),
@@ -124,6 +141,7 @@ pub async fn build_backup_config(
         checkpoint,
         rate_limiting,
         circuit_breaker,
+        metrics,
     })
 }
 
@@ -211,5 +229,16 @@ fn build_circuit_breaker_config(
         reset_timeout_secs: circuit_breaker.reset_timeout_secs,
         success_threshold: circuit_breaker.success_threshold,
         operation_timeout_ms: circuit_breaker.operation_timeout_ms,
+    }
+}
+
+fn build_metrics_config(metrics: &MetricsSpec) -> ResolvedMetricsConfig {
+    ResolvedMetricsConfig {
+        enabled: metrics.enabled,
+        port: metrics.port,
+        bind_address: metrics.bind_address.clone(),
+        path: metrics.path.clone(),
+        update_interval_ms: metrics.update_interval_ms,
+        max_partition_labels: metrics.max_partition_labels,
     }
 }
