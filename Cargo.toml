@@ -12,7 +12,7 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 # Core backup library - v0.4.0 with TLS certificate fix (GitHub Issue #3)
-kafka-backup-core = { git = "https://github.com/osodevops/kafka-backup.git", tag = "v0.6.0" }
+kafka-backup-core = { git = "https://github.com/osodevops/kafka-backup.git", tag = "v0.7.0" }
 
 # Kubernetes
 kube = { version = "0.95", features = ["runtime", "derive", "client"] }
