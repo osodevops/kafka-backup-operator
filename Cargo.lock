@@ -1159,8 +1159,8 @@ dependencies = [
 
 [[package]]
 name = "kafka-backup-core"
-version = "0.7.0"
-source = "git+https://github.com/osodevops/kafka-backup.git?tag=v0.7.0#34578a5961a5832c082a16be03081bb10f00c020"
+version = "0.8.1"
+source = "git+https://github.com/osodevops/kafka-backup.git?tag=v0.8.1#93407c1dae36607f0ecb43941ceb4d9d03890c3c"
 dependencies = [
  "anyhow",
  "async-trait",
