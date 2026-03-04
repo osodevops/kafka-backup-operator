@@ -1159,8 +1159,8 @@ dependencies = [
 
 [[package]]
 name = "kafka-backup-core"
-version = "0.7.0"
-source = "git+https://github.com/osodevops/kafka-backup.git?tag=v0.7.0#34578a5961a5832c082a16be03081bb10f00c020"
+version = "0.9.0"
+source = "git+https://github.com/osodevops/kafka-backup.git?tag=v0.9.0#b62b379774762f75c20a7140ca7284716ed68ed5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1179,6 +1179,7 @@ dependencies = [
  "parking_lot",
  "prometheus-client",
  "regex",
+ "ring",
  "rustls",
  "rustls-pemfile",
  "serde",
