@@ -1159,8 +1159,8 @@ dependencies = [
 
 [[package]]
 name = "kafka-backup-core"
-version = "0.7.0"
-source = "git+https://github.com/osodevops/kafka-backup.git?tag=v0.7.0#34578a5961a5832c082a16be03081bb10f00c020"
+version = "0.10.0"
+source = "git+https://github.com/osodevops/kafka-backup.git?tag=v0.10.0#251521be82450a3b2c65376b9c6b328df9e7f00c"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1175,10 +1175,12 @@ dependencies = [
  "indexmap",
  "kafka-protocol",
  "lz4_flex",
+ "murmur2",
  "object_store",
  "parking_lot",
  "prometheus-client",
  "regex",
+ "ring",
  "rustls",
  "rustls-pemfile",
  "serde",
@@ -1495,6 +1497,12 @@ dependencies = [
  "wasi",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "murmur2"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb585ade2549a017db2e35978b77c319214fa4b37cede841e27954dd6e8f3ca8"
 
 [[package]]
 name = "nom"
