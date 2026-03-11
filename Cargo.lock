@@ -1159,8 +1159,8 @@ dependencies = [
 
 [[package]]
 name = "kafka-backup-core"
-version = "0.7.0"
-source = "git+https://github.com/osodevops/kafka-backup.git?tag=v0.7.0#34578a5961a5832c082a16be03081bb10f00c020"
+version = "0.10.1"
+source = "git+https://github.com/osodevops/kafka-backup.git?tag=v0.10.1#daf83e9cc405082bba98d627821b7af1697a918a"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1175,10 +1175,12 @@ dependencies = [
  "indexmap",
  "kafka-protocol",
  "lz4_flex",
+ "murmur2",
  "object_store",
  "parking_lot",
  "prometheus-client",
  "regex",
+ "ring",
  "rustls",
  "rustls-pemfile",
  "serde",
@@ -1497,6 +1499,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "murmur2"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb585ade2549a017db2e35978b77c319214fa4b37cede841e27954dd6e8f3ca8"
+
+[[package]]
 name = "nom"
 version = "7.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1753,9 +1761,9 @@ dependencies = [
 
 [[package]]
 name = "prometheus-client"
-version = "0.22.3"
+version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "504ee9ff529add891127c4827eb481bd69dc0ebc72e9a682e187db4caa60c3ca"
+checksum = "e4500adecd7af8e0e9f4dbce15cfee07ce913fbf6ad605cc468b83f2d531ee94"
 dependencies = [
  "dtoa",
  "itoa",
@@ -1765,9 +1773,9 @@ dependencies = [
 
 [[package]]
 name = "prometheus-client-derive-encode"
-version = "0.4.2"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "440f724eba9f6996b75d63681b0a92b06947f1457076d503a4d2e2c8f56442b8"
+checksum = "9adf1691c04c0a5ff46ff8f262b58beb07b0dbb61f96f9f54f6cbd82106ed87f"
 dependencies = [
  "proc-macro2",
  "quote",
