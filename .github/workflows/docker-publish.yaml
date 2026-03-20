@@ -62,7 +62,7 @@ jobs:
             type=sha,prefix=
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           # Single arch for faster builds - ARM64 can be added later with matrix builds
