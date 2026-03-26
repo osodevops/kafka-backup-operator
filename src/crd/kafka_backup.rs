@@ -231,6 +231,14 @@ pub struct S3StorageSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub endpoint: Option<String>,
 
+    /// Force path-style addressing (useful for some S3-compatible endpoints like MinIO)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path_style: Option<bool>,
+
+    /// Allow HTTP (insecure) connections to the endpoint (useful for in-cluster MinIO)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_http: Option<bool>,
+
     /// Path prefix within bucket
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prefix: Option<String>,

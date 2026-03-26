@@ -403,6 +403,14 @@ spec:
                         description: Custom endpoint (for MinIO, Ceph, etc.)
                         nullable: true
                         type: string
+                      pathStyle:
+                        description: Force path-style addressing (useful for some S3-compatible endpoints like MinIO)
+                        nullable: true
+                        type: boolean
+                      allowHttp:
+                        description: Allow HTTP (insecure) connections to the endpoint (useful for in-cluster MinIO)
+                        nullable: true
+                        type: boolean
                       prefix:
                         description: Path prefix within bucket
                         nullable: true
@@ -769,6 +777,14 @@ spec:
                             description: Custom endpoint (for MinIO, Ceph, etc.)
                             nullable: true
                             type: string
+                          pathStyle:
+                            description: Force path-style addressing (useful for some S3-compatible endpoints like MinIO)
+                            nullable: true
+                            type: boolean
+                          allowHttp:
+                            description: Allow HTTP (insecure) connections to the endpoint (useful for in-cluster MinIO)
+                            nullable: true
+                            type: boolean
                           prefix:
                             description: Path prefix within bucket
                             nullable: true
