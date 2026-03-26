@@ -157,8 +157,8 @@ fn to_core_storage_config(resolved: &ResolvedStorage) -> StorageBackendConfig {
             access_key: Some(s3.access_key_id.clone()),
             secret_key: Some(s3.secret_access_key.clone()),
             prefix: s3.prefix.clone(),
-            path_style: false,
-            allow_http: false,
+            path_style: s3.path_style,
+            allow_http: s3.allow_http,
         },
         ResolvedStorage::Azure(azure) => {
             // Determine authentication method based on resolved auth
