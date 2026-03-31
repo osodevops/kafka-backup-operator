@@ -55,6 +55,9 @@ spec:
             - name: LEADER_ELECTION_RETRY_PERIOD
               value: {{ .Values.leaderElection.retryPeriod | quote }}
             {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           livenessProbe:
@@ -78,9 +81,15 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       terminationGracePeriodSeconds: 30
       {{- with .Values.nodeSelector }}
       nodeSelector:

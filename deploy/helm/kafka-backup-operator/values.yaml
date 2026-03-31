@@ -73,6 +73,15 @@ tolerations: []
 
 affinity: {}
 
+# Extra pod volumes to mount into the operator pod
+extraVolumes: []
+
+# Extra volume mounts for the operator container
+extraVolumeMounts: []
+
+# Extra environment variables for the operator container
+extraEnv: []
+
 # Logging configuration
 logging:
   level: "info,kafka_backup_operator=debug"
