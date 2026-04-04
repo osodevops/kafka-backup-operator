@@ -1,5 +1,8 @@
 name: Sync Helm Chart to helm-charts Repository
 
+permissions:
+  contents: read
+
 on:
   push:
     branches:
@@ -20,7 +23,7 @@ jobs:
 
     steps:
       - name: Checkout source repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           path: source-repo
 
@@ -33,7 +36,7 @@ jobs:
           echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
 
       - name: Checkout target repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           repository: ${{ env.TARGET_REPO }}
           token: ${{ secrets.HELM_CHARTS_PAT }}
@@ -47,7 +50,7 @@ jobs:
           cp -r source-repo/${{ env.SOURCE_CHART_PATH }}/* target-repo/${{ env.TARGET_CHART_PATH }}/
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@c0f553fe549906ede9cf27b5156039d195d2ece0 # v8
         with:
           token: ${{ secrets.HELM_CHARTS_PAT }}
           path: target-repo
