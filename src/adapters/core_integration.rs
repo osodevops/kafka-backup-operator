@@ -261,6 +261,9 @@ fn to_core_backup_options(resolved: &ResolvedBackupConfig) -> BackupOptions {
         sync_interval_secs,
         include_offset_headers: true, // Enable for three-phase restore support
         source_cluster_id: None,
+        stop_at_current_offsets: false,
+        max_concurrent_partitions: 8,
+        poll_interval_ms: 100,
     }
 }
 
@@ -315,6 +318,7 @@ fn to_core_restore_options(resolved: &ResolvedRestoreConfig) -> RestoreOptions {
         offset_report: None,
         create_topics: resolved.create_topics,
         default_replication_factor: resolved.default_replication_factor,
+        repartitioning: std::collections::HashMap::new(),
     }
 }
 
