@@ -53,8 +53,11 @@ pub enum ResolvedBackupSource {
         namespace: String,
         backup_id: Option<String>,
     },
-    /// Direct storage reference
-    Storage(ResolvedStorage),
+    /// Direct storage reference (with optional backup_id from backupRef)
+    Storage {
+        storage: ResolvedStorage,
+        backup_id: Option<String>,
+    },
 }
 
 /// Resolved PITR configuration
@@ -140,10 +143,13 @@ async fn resolve_backup_ref(
     client: &Client,
     namespace: &str,
 ) -> Result<ResolvedBackupSource> {
-    // If direct storage is specified, use that
+    // If direct storage is specified, use that (preserving backup_id if provided)
     if let Some(storage) = &backup_ref.storage {
         let resolved = build_storage_config(storage, client, namespace).await?;
-        return Ok(ResolvedBackupSource::Storage(resolved));
+        return Ok(ResolvedBackupSource::Storage {
+            storage: resolved,
+            backup_id: backup_ref.backup_id.clone(),
+        });
     }
 
     // Otherwise, reference the KafkaBackup resource
