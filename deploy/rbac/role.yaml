@@ -132,6 +132,31 @@ rules:
     verbs:
       - update
 
+  # Custom resources - KafkaBackupValidation
+  - apiGroups: ["kafka.oso.sh"]
+    resources:
+      - kafkabackupvalidations
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups: ["kafka.oso.sh"]
+    resources:
+      - kafkabackupvalidations/status
+    verbs:
+      - get
+      - update
+      - patch
+  - apiGroups: ["kafka.oso.sh"]
+    resources:
+      - kafkabackupvalidations/finalizers
+    verbs:
+      - update
+
   # Coordination for leader election (optional)
   - apiGroups: ["coordination.k8s.io"]
     resources:
