@@ -34,6 +34,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Get version from Cargo.toml
         id: version
@@ -65,11 +67,24 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=
 
-      - name: Build and push Docker image
+      - name: Build Docker image
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
         with:
           context: .
-          # Single arch for faster builds - ARM64 can be added later with matrix builds
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test
+        run: |
+          docker run --rm ${{ env.IMAGE_NAME }}:test --help > /dev/null
+          echo "Docker smoke test passed!"
+
+      - name: Push Docker image
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
+        with:
+          context: .
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
