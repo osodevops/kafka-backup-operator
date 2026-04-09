@@ -97,6 +97,21 @@ lazy_static::lazy_static! {
         vec![0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0]
     ).unwrap();
 
+    /// Total number of validations
+    pub static ref VALIDATIONS_TOTAL: CounterVec = register_counter_vec!(
+        "kafka_backup_operator_validations_total",
+        "Total number of validations by outcome",
+        &["outcome", "namespace", "name"]
+    ).unwrap();
+
+    /// Validation duration histogram
+    pub static ref VALIDATION_DURATION: HistogramVec = register_histogram_vec!(
+        "kafka_backup_operator_validation_duration_seconds",
+        "Duration of validation operations",
+        &["namespace", "name"],
+        vec![1.0, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0]
+    ).unwrap();
+
     /// Total number of cleanup operations
     pub static ref CLEANUPS: CounterVec = register_counter_vec!(
         "kafka_backup_operator_cleanups_total",

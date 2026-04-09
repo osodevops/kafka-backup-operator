@@ -10,11 +10,20 @@ use kafka_backup_core::config::{
     SecurityConfig, SecurityProtocol, TopicSelection,
 };
 use kafka_backup_core::storage::StorageBackendConfig;
+use kafka_backup_core::validation::{
+    ChecksConfig as CoreChecksConfig, ConsumerGroupConfig as CoreConsumerGroupConfig,
+    EvidenceConfig as CoreEvidenceConfig, EvidenceFormat, EvidenceStorageConfig,
+    MessageCountConfig as CoreMessageCountConfig, NotificationsConfig as CoreNotificationsConfig,
+    OffsetRangeConfig as CoreOffsetRangeConfig, PagerDutyConfig as CorePagerDutyConfig,
+    SigningConfig as CoreSigningConfig, SlackConfig as CoreSlackConfig,
+    ValidationConfig as CoreValidationConfig, WebhookConfig as CoreWebhookConfig,
+};
 
 use super::backup_config::{ResolvedBackupConfig, ResolvedKafkaConfig, ResolvedMetricsConfig};
 use super::restore_config::ResolvedRestoreConfig;
 use super::storage_config::ResolvedStorage;
 use super::tls_files::TlsFileManager;
+use super::validation_config::{ResolvedEvidenceConfig, ResolvedValidationConfig};
 
 /// Convert resolved backup configuration to kafka-backup-core Config
 pub fn to_core_backup_config(
@@ -145,6 +154,15 @@ pub fn to_core_security_config_with_tls(
 }
 
 /// Convert resolved storage configuration to kafka-backup-core StorageBackendConfig
+pub fn to_core_storage_config_for_validation(resolved: &ResolvedStorage) -> StorageBackendConfig {
+    to_core_storage_config(resolved)
+}
+
+/// Convert resolved Kafka configuration to kafka-backup-core KafkaConfig (for validation)
+pub fn to_core_kafka_config_for_validation(resolved: &ResolvedKafkaConfig) -> KafkaConfig {
+    to_core_kafka_config(resolved, &[])
+}
+
 fn to_core_storage_config(resolved: &ResolvedStorage) -> StorageBackendConfig {
     match resolved {
         ResolvedStorage::Local(local) => StorageBackendConfig::Filesystem {
@@ -157,8 +175,8 @@ fn to_core_storage_config(resolved: &ResolvedStorage) -> StorageBackendConfig {
             access_key: Some(s3.access_key_id.clone()),
             secret_key: Some(s3.secret_access_key.clone()),
             prefix: s3.prefix.clone(),
-            path_style: false,
-            allow_http: false,
+            path_style: s3.path_style,
+            allow_http: s3.allow_http,
         },
         ResolvedStorage::Azure(azure) => {
             // Determine authentication method based on resolved auth
@@ -378,4 +396,161 @@ pub fn get_snapshot_storage_path(rollback_path: Option<&str>) -> PathBuf {
 /// Build bootstrap servers string from resolved kafka config
 pub fn get_bootstrap_servers(kafka: &ResolvedKafkaConfig) -> Vec<String> {
     kafka.bootstrap_servers.clone()
+}
+
+/// Convert resolved validation configuration to kafka-backup-core ValidationConfig
+pub fn to_core_validation_config(
+    resolved: &ResolvedValidationConfig,
+    backup_id: &str,
+    storage: &ResolvedStorage,
+) -> kafka_backup_core::Result<CoreValidationConfig> {
+    let storage_config = to_core_storage_config(storage);
+
+    let kafka_config = match &resolved.kafka {
+        Some(kafka) => to_core_kafka_config(kafka, &[]),
+        None => KafkaConfig {
+            bootstrap_servers: vec![],
+            security: SecurityConfig::default(),
+            topics: TopicSelection::default(),
+            connection: ConnectionConfig::default(),
+        },
+    };
+
+    let checks = to_core_checks_config(&resolved.checks);
+
+    let evidence = match &resolved.evidence {
+        Some(ev) => to_core_evidence_config(ev, storage),
+        None => CoreEvidenceConfig::default(),
+    };
+
+    let notifications = resolved
+        .notifications
+        .as_ref()
+        .map(to_core_notifications_config);
+
+    Ok(CoreValidationConfig {
+        backup_id: backup_id.to_string(),
+        storage: storage_config,
+        target: kafka_config,
+        checks,
+        evidence,
+        notifications,
+        pitr_timestamp: None,
+        triggered_by: Some("kafka-backup-operator".to_string()),
+    })
+}
+
+/// Convert CRD checks spec to core ChecksConfig
+fn to_core_checks_config(checks: &crate::crd::ValidationChecksSpec) -> CoreChecksConfig {
+    let message_count = match &checks.message_count {
+        Some(mc) => CoreMessageCountConfig {
+            enabled: mc.enabled,
+            mode: Default::default(),
+            sample_percentage: 100,
+            topics: mc.topics.clone(),
+            fail_threshold: mc.fail_threshold.unwrap_or(0),
+        },
+        None => CoreMessageCountConfig {
+            enabled: false,
+            ..Default::default()
+        },
+    };
+
+    let offset_range = match &checks.offset_range {
+        Some(or) => CoreOffsetRangeConfig {
+            enabled: or.enabled,
+            verify_high_watermark: true,
+            verify_low_watermark: true,
+        },
+        None => CoreOffsetRangeConfig {
+            enabled: false,
+            ..Default::default()
+        },
+    };
+
+    let consumer_group_offsets = match &checks.consumer_group_offsets {
+        Some(cg) => CoreConsumerGroupConfig {
+            enabled: cg.enabled,
+            verify_all_groups: cg.consumer_groups.is_empty(),
+            groups: cg.consumer_groups.clone(),
+        },
+        None => CoreConsumerGroupConfig {
+            enabled: false,
+            ..Default::default()
+        },
+    };
+
+    let custom_webhooks: Vec<CoreWebhookConfig> = checks
+        .custom_webhooks
+        .iter()
+        .map(|wh| CoreWebhookConfig {
+            name: wh.name.clone(),
+            url: wh.url.clone(),
+            timeout_seconds: wh.timeout_secs,
+            expected_status_code: wh.expected_status_code,
+            fail_on_timeout: true,
+        })
+        .collect();
+
+    CoreChecksConfig {
+        message_count,
+        offset_range,
+        consumer_group_offsets,
+        custom_webhooks,
+    }
+}
+
+/// Convert resolved evidence config to core EvidenceConfig
+fn to_core_evidence_config(
+    resolved: &ResolvedEvidenceConfig,
+    _backup_storage: &ResolvedStorage,
+) -> CoreEvidenceConfig {
+    let formats = resolved
+        .formats
+        .iter()
+        .filter_map(|f| match f.to_lowercase().as_str() {
+            "json" => Some(EvidenceFormat::Json),
+            "pdf" => Some(EvidenceFormat::Pdf),
+            _ => None,
+        })
+        .collect();
+
+    let signing = CoreSigningConfig {
+        enabled: resolved.signing_private_key_pem.is_some(),
+        private_key_path: resolved.signing_private_key_pem.clone(),
+        public_key_path: resolved.signing_public_key_pem.clone(),
+    };
+
+    CoreEvidenceConfig {
+        formats,
+        signing,
+        storage: EvidenceStorageConfig {
+            prefix: "evidence-reports/".to_string(),
+            retention_days: resolved.retention_days,
+        },
+    }
+}
+
+/// Convert resolved notifications config to core NotificationsConfig
+fn to_core_notifications_config(
+    resolved: &super::validation_config::ResolvedNotificationsConfig,
+) -> CoreNotificationsConfig {
+    CoreNotificationsConfig {
+        slack: resolved
+            .slack_webhook_url
+            .as_ref()
+            .map(|url| CoreSlackConfig {
+                webhook_url: url.clone(),
+            }),
+        pagerduty: resolved
+            .pagerduty_routing_key
+            .as_ref()
+            .map(|key| CorePagerDutyConfig {
+                integration_key: key.clone(),
+                severity: resolved
+                    .pagerduty_severity
+                    .clone()
+                    .unwrap_or_else(|| "critical".to_string()),
+            }),
+    }
 }

@@ -52,6 +52,14 @@ pub enum Error {
     #[error("Rollback error: {0}")]
     Rollback(String),
 
+    /// Evidence generation error
+    #[error("Evidence error: {0}")]
+    Evidence(String),
+
+    /// Notification delivery error
+    #[error("Notification error: {0}")]
+    Notification(String),
+
     /// Serialization error
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
@@ -84,5 +92,15 @@ impl Error {
     /// Create a core library error
     pub fn core(msg: impl Into<String>) -> Self {
         Error::Core(msg.into())
+    }
+
+    /// Create an evidence error
+    pub fn evidence(msg: impl Into<String>) -> Self {
+        Error::Evidence(msg.into())
+    }
+
+    /// Create a notification error
+    pub fn notification(msg: impl Into<String>) -> Self {
+        Error::Notification(msg.into())
     }
 }

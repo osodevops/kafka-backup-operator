@@ -379,6 +379,10 @@ spec:
                     description: S3 storage configuration
                     nullable: true
                     properties:
+                      allowHttp:
+                        description: Allow HTTP (insecure) connections to the endpoint (useful for in-cluster MinIO)
+                        nullable: true
+                        type: boolean
                       bucket:
                         description: S3 bucket name
                         type: string
@@ -403,6 +407,10 @@ spec:
                         description: Custom endpoint (for MinIO, Ceph, etc.)
                         nullable: true
                         type: string
+                      pathStyle:
+                        description: Force path-style addressing (useful for some S3-compatible endpoints like MinIO)
+                        nullable: true
+                        type: boolean
                       prefix:
                         description: Path prefix within bucket
                         nullable: true
@@ -745,6 +753,10 @@ spec:
                         description: S3 storage configuration
                         nullable: true
                         properties:
+                          allowHttp:
+                            description: Allow HTTP (insecure) connections to the endpoint (useful for in-cluster MinIO)
+                            nullable: true
+                            type: boolean
                           bucket:
                             description: S3 bucket name
                             type: string
@@ -769,6 +781,10 @@ spec:
                             description: Custom endpoint (for MinIO, Ceph, etc.)
                             nullable: true
                             type: string
+                          pathStyle:
+                            description: Force path-style addressing (useful for some S3-compatible endpoints like MinIO)
+                            nullable: true
+                            type: boolean
                           prefix:
                             description: Path prefix within bucket
                             nullable: true
@@ -1675,6 +1691,843 @@ spec:
         required:
         - spec
         title: KafkaOffsetRollback
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: kafkabackupvalidations.kafka.oso.sh
+spec:
+  group: kafka.oso.sh
+  names:
+    categories: []
+    kind: KafkaBackupValidation
+    plural: kafkabackupvalidations
+    shortNames:
+    - kbv
+    singular: kafkabackupvalidation
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.validationResult
+      name: Result
+      type: string
+    - jsonPath: .status.checksCompleted
+      name: Checks
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for KafkaBackupValidationSpec via `CustomResource`
+        properties:
+          spec:
+            description: KafkaBackupValidation resource specification
+            properties:
+              backupRef:
+                description: Reference to the backup to validate
+                properties:
+                  backupId:
+                    description: Specific backup ID to validate
+                    nullable: true
+                    type: string
+                  name:
+                    description: KafkaBackup resource name
+                    type: string
+                  namespace:
+                    description: Namespace (defaults to same namespace)
+                    nullable: true
+                    type: string
+                  storage:
+                    description: Direct storage reference (alternative to KafkaBackup resource lookup)
+                    nullable: true
+                    properties:
+                      azure:
+                        description: Azure Blob storage configuration
+                        nullable: true
+                        properties:
+                          accountName:
+                            description: Storage account name
+                            type: string
+                          container:
+                            description: Container name
+                            type: string
+                          credentialsSecret:
+                            description: Credentials secret reference for account key authentication Optional when using Workload Identity or Service Principal
+                            nullable: true
+                            properties:
+                              accountKeyKey:
+                                default: AZURE_STORAGE_KEY
+                                description: Account key key in secret
+                                type: string
+                              name:
+                                description: Secret name
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          endpoint:
+                            description: Custom endpoint URL (for Azure Government, China, or private endpoints)
+                            nullable: true
+                            type: string
+                          prefix:
+                            description: Path prefix within container
+                            nullable: true
+                            type: string
+                          sasTokenSecret:
+                            description: SAS token secret reference for time-limited access
+                            nullable: true
+                            properties:
+                              name:
+                                description: Secret name
+                                type: string
+                              sasTokenKey:
+                                default: AZURE_SAS_TOKEN
+                                description: SAS token key in secret
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          servicePrincipalSecret:
+                            description: Service Principal credentials for CI/CD pipelines
+                            nullable: true
+                            properties:
+                              clientIdKey:
+                                default: AZURE_CLIENT_ID
+                                description: Client ID key in secret
+                                type: string
+                              clientSecretKey:
+                                default: AZURE_CLIENT_SECRET
+                                description: Client secret key in secret
+                                type: string
+                              name:
+                                description: Secret name
+                                type: string
+                              tenantIdKey:
+                                default: AZURE_TENANT_ID
+                                description: Tenant ID key in secret
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          useWorkloadIdentity:
+                            default: false
+                            description: Use Azure Workload Identity for authentication When true, the operator uses the pod's federated identity token to authenticate with Azure Blob Storage (requires AKS with Workload Identity enabled) This is auto-detected if AZURE_FEDERATED_TOKEN_FILE environment variable is present
+                            type: boolean
+                        required:
+                        - accountName
+                        - container
+                        type: object
+                      gcs:
+                        description: GCS storage configuration
+                        nullable: true
+                        properties:
+                          bucket:
+                            description: GCS bucket name
+                            type: string
+                          credentialsSecret:
+                            description: Credentials secret reference
+                            properties:
+                              name:
+                                description: Secret name
+                                type: string
+                              serviceAccountJsonKey:
+                                default: SERVICE_ACCOUNT_JSON
+                                description: Service account JSON key in secret
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          prefix:
+                            description: Path prefix within bucket
+                            nullable: true
+                            type: string
+                        required:
+                        - bucket
+                        - credentialsSecret
+                        type: object
+                      pvc:
+                        description: PVC storage configuration
+                        nullable: true
+                        properties:
+                          claimName:
+                            description: PVC claim name
+                            type: string
+                          create:
+                            description: Auto-create PVC if not exists
+                            nullable: true
+                            properties:
+                              accessModes:
+                                default:
+                                - ReadWriteOnce
+                                description: Access modes
+                                items:
+                                  type: string
+                                type: array
+                              enabled:
+                                default: false
+                                description: Enable auto-creation
+                                type: boolean
+                              size:
+                                default: 100Gi
+                                description: Storage size (e.g., "100Gi")
+                                type: string
+                              storageClassName:
+                                description: Storage class name
+                                nullable: true
+                                type: string
+                            type: object
+                          subPath:
+                            description: Sub-path within the PVC
+                            nullable: true
+                            type: string
+                        required:
+                        - claimName
+                        type: object
+                      s3:
+                        description: S3 storage configuration
+                        nullable: true
+                        properties:
+                          allowHttp:
+                            description: Allow HTTP (insecure) connections to the endpoint (useful for in-cluster MinIO)
+                            nullable: true
+                            type: boolean
+                          bucket:
+                            description: S3 bucket name
+                            type: string
+                          credentialsSecret:
+                            description: Credentials secret reference
+                            properties:
+                              accessKeyIdKey:
+                                default: AWS_ACCESS_KEY_ID
+                                description: Access key ID key in secret
+                                type: string
+                              name:
+                                description: Secret name
+                                type: string
+                              secretAccessKeyKey:
+                                default: AWS_SECRET_ACCESS_KEY
+                                description: Secret access key key in secret
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          endpoint:
+                            description: Custom endpoint (for MinIO, Ceph, etc.)
+                            nullable: true
+                            type: string
+                          pathStyle:
+                            description: Force path-style addressing (useful for some S3-compatible endpoints like MinIO)
+                            nullable: true
+                            type: boolean
+                          prefix:
+                            description: Path prefix within bucket
+                            nullable: true
+                            type: string
+                          region:
+                            description: AWS region
+                            type: string
+                        required:
+                        - bucket
+                        - credentialsSecret
+                        - region
+                        type: object
+                      storageType:
+                        default: pvc
+                        description: Storage type (pvc, s3, azure, gcs)
+                        type: string
+                    type: object
+                required:
+                - name
+                type: object
+              checks:
+                description: Validation checks to run
+                properties:
+                  consumerGroupOffsets:
+                    description: Consumer group offset check (verify consumer group positions are backed up)
+                    nullable: true
+                    properties:
+                      consumerGroups:
+                        description: Consumer groups to check (empty = all groups)
+                        items:
+                          type: string
+                        type: array
+                      enabled:
+                        default: true
+                        description: Enable this check
+                        type: boolean
+                    type: object
+                  customWebhooks:
+                    description: Custom webhook checks (call external validation endpoints)
+                    items:
+                      description: Custom webhook check specification
+                      properties:
+                        expectedStatusCode:
+                          default: 200
+                          description: Expected HTTP status code
+                          format: uint16
+                          minimum: 0.0
+                          type: integer
+                        name:
+                          description: Display name for this check
+                          type: string
+                        timeoutSecs:
+                          default: 120
+                          description: Timeout in seconds
+                          format: uint64
+                          minimum: 0.0
+                          type: integer
+                        url:
+                          description: URL to POST validation payload to
+                          type: string
+                      required:
+                      - name
+                      - url
+                      type: object
+                    type: array
+                  messageCount:
+                    description: Message count check (compare record counts against backup manifest)
+                    nullable: true
+                    properties:
+                      enabled:
+                        default: true
+                        description: Enable this check
+                        type: boolean
+                      failThreshold:
+                        description: Acceptable difference threshold (number of records)
+                        format: uint64
+                        minimum: 0.0
+                        nullable: true
+                        type: integer
+                      topics:
+                        description: Topics to check (empty = all topics from backup)
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  offsetRange:
+                    description: Offset range check (verify backup covers expected offset ranges)
+                    nullable: true
+                    properties:
+                      enabled:
+                        default: true
+                        description: Enable this check
+                        type: boolean
+                    type: object
+                type: object
+              evidence:
+                description: Evidence report configuration
+                nullable: true
+                properties:
+                  formats:
+                    default:
+                    - json
+                    description: Output formats (json, pdf)
+                    items:
+                      type: string
+                    type: array
+                  retentionDays:
+                    default: 90
+                    description: Retention period in days
+                    format: uint32
+                    minimum: 0.0
+                    type: integer
+                  signing:
+                    description: Cryptographic signing configuration
+                    nullable: true
+                    properties:
+                      enabled:
+                        default: false
+                        description: Enable ECDSA-P256-SHA256 signing
+                        type: boolean
+                      keySecret:
+                        description: Secret containing the ECDSA private key (PEM-encoded)
+                        properties:
+                          name:
+                            description: Secret name
+                            type: string
+                          privateKeyKey:
+                            default: signing-key.pem
+                            description: Key within secret containing the private key PEM
+                            type: string
+                          publicKeyKey:
+                            default: signing-key-pub.pem
+                            description: Key within secret containing the public key PEM
+                            type: string
+                        required:
+                        - name
+                        type: object
+                    required:
+                    - keySecret
+                    type: object
+                  storage:
+                    description: Storage location for evidence reports
+                    nullable: true
+                    properties:
+                      azure:
+                        description: Azure Blob storage configuration
+                        nullable: true
+                        properties:
+                          accountName:
+                            description: Storage account name
+                            type: string
+                          container:
+                            description: Container name
+                            type: string
+                          credentialsSecret:
+                            description: Credentials secret reference for account key authentication Optional when using Workload Identity or Service Principal
+                            nullable: true
+                            properties:
+                              accountKeyKey:
+                                default: AZURE_STORAGE_KEY
+                                description: Account key key in secret
+                                type: string
+                              name:
+                                description: Secret name
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          endpoint:
+                            description: Custom endpoint URL (for Azure Government, China, or private endpoints)
+                            nullable: true
+                            type: string
+                          prefix:
+                            description: Path prefix within container
+                            nullable: true
+                            type: string
+                          sasTokenSecret:
+                            description: SAS token secret reference for time-limited access
+                            nullable: true
+                            properties:
+                              name:
+                                description: Secret name
+                                type: string
+                              sasTokenKey:
+                                default: AZURE_SAS_TOKEN
+                                description: SAS token key in secret
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          servicePrincipalSecret:
+                            description: Service Principal credentials for CI/CD pipelines
+                            nullable: true
+                            properties:
+                              clientIdKey:
+                                default: AZURE_CLIENT_ID
+                                description: Client ID key in secret
+                                type: string
+                              clientSecretKey:
+                                default: AZURE_CLIENT_SECRET
+                                description: Client secret key in secret
+                                type: string
+                              name:
+                                description: Secret name
+                                type: string
+                              tenantIdKey:
+                                default: AZURE_TENANT_ID
+                                description: Tenant ID key in secret
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          useWorkloadIdentity:
+                            default: false
+                            description: Use Azure Workload Identity for authentication When true, the operator uses the pod's federated identity token to authenticate with Azure Blob Storage (requires AKS with Workload Identity enabled) This is auto-detected if AZURE_FEDERATED_TOKEN_FILE environment variable is present
+                            type: boolean
+                        required:
+                        - accountName
+                        - container
+                        type: object
+                      gcs:
+                        description: GCS storage configuration
+                        nullable: true
+                        properties:
+                          bucket:
+                            description: GCS bucket name
+                            type: string
+                          credentialsSecret:
+                            description: Credentials secret reference
+                            properties:
+                              name:
+                                description: Secret name
+                                type: string
+                              serviceAccountJsonKey:
+                                default: SERVICE_ACCOUNT_JSON
+                                description: Service account JSON key in secret
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          prefix:
+                            description: Path prefix within bucket
+                            nullable: true
+                            type: string
+                        required:
+                        - bucket
+                        - credentialsSecret
+                        type: object
+                      pvc:
+                        description: PVC storage configuration
+                        nullable: true
+                        properties:
+                          claimName:
+                            description: PVC claim name
+                            type: string
+                          create:
+                            description: Auto-create PVC if not exists
+                            nullable: true
+                            properties:
+                              accessModes:
+                                default:
+                                - ReadWriteOnce
+                                description: Access modes
+                                items:
+                                  type: string
+                                type: array
+                              enabled:
+                                default: false
+                                description: Enable auto-creation
+                                type: boolean
+                              size:
+                                default: 100Gi
+                                description: Storage size (e.g., "100Gi")
+                                type: string
+                              storageClassName:
+                                description: Storage class name
+                                nullable: true
+                                type: string
+                            type: object
+                          subPath:
+                            description: Sub-path within the PVC
+                            nullable: true
+                            type: string
+                        required:
+                        - claimName
+                        type: object
+                      s3:
+                        description: S3 storage configuration
+                        nullable: true
+                        properties:
+                          allowHttp:
+                            description: Allow HTTP (insecure) connections to the endpoint (useful for in-cluster MinIO)
+                            nullable: true
+                            type: boolean
+                          bucket:
+                            description: S3 bucket name
+                            type: string
+                          credentialsSecret:
+                            description: Credentials secret reference
+                            properties:
+                              accessKeyIdKey:
+                                default: AWS_ACCESS_KEY_ID
+                                description: Access key ID key in secret
+                                type: string
+                              name:
+                                description: Secret name
+                                type: string
+                              secretAccessKeyKey:
+                                default: AWS_SECRET_ACCESS_KEY
+                                description: Secret access key key in secret
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          endpoint:
+                            description: Custom endpoint (for MinIO, Ceph, etc.)
+                            nullable: true
+                            type: string
+                          pathStyle:
+                            description: Force path-style addressing (useful for some S3-compatible endpoints like MinIO)
+                            nullable: true
+                            type: boolean
+                          prefix:
+                            description: Path prefix within bucket
+                            nullable: true
+                            type: string
+                          region:
+                            description: AWS region
+                            type: string
+                        required:
+                        - bucket
+                        - credentialsSecret
+                        - region
+                        type: object
+                      storageType:
+                        default: pvc
+                        description: Storage type (pvc, s3, azure, gcs)
+                        type: string
+                    type: object
+                type: object
+              kafkaCluster:
+                description: Target Kafka cluster (required for consumer group offset checks)
+                nullable: true
+                properties:
+                  bootstrapServers:
+                    description: Bootstrap servers
+                    items:
+                      type: string
+                    type: array
+                  saslSecret:
+                    description: SASL configuration secret reference
+                    nullable: true
+                    properties:
+                      mechanism:
+                        description: SASL mechanism (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)
+                        type: string
+                      name:
+                        description: Secret name
+                        type: string
+                      passwordKey:
+                        default: password
+                        description: Password key in secret
+                        type: string
+                      usernameKey:
+                        default: username
+                        description: Username key in secret
+                        type: string
+                    required:
+                    - mechanism
+                    - name
+                    type: object
+                  securityProtocol:
+                    default: PLAINTEXT
+                    description: Security protocol (PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL)
+                    type: string
+                  tlsSecret:
+                    description: TLS configuration secret reference
+                    nullable: true
+                    properties:
+                      caKey:
+                        default: ca.crt
+                        description: CA certificate key in secret
+                        type: string
+                      certKey:
+                        description: Client certificate key in secret
+                        nullable: true
+                        type: string
+                      keyKey:
+                        description: Client key key in secret
+                        nullable: true
+                        type: string
+                      name:
+                        description: Secret name
+                        type: string
+                    required:
+                    - name
+                    type: object
+                required:
+                - bootstrapServers
+                type: object
+              notifications:
+                description: Notification channels
+                nullable: true
+                properties:
+                  pagerduty:
+                    description: PagerDuty notification
+                    nullable: true
+                    properties:
+                      routingKeySecret:
+                        description: Secret containing the integration/routing key
+                        properties:
+                          key:
+                            description: Key within the secret
+                            type: string
+                          name:
+                            description: Secret name
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                      severity:
+                        default: critical
+                        description: Alert severity (critical, error, warning, info)
+                        type: string
+                    required:
+                    - routingKeySecret
+                    type: object
+                  slack:
+                    description: Slack notification
+                    nullable: true
+                    properties:
+                      webhookSecret:
+                        description: Secret containing the webhook URL
+                        properties:
+                          key:
+                            description: Key within the secret
+                            type: string
+                          name:
+                            description: Secret name
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    required:
+                    - webhookSecret
+                    type: object
+                type: object
+              schedule:
+                description: Cron schedule for recurring validation
+                nullable: true
+                type: string
+              suspend:
+                default: false
+                description: Suspend validations
+                type: boolean
+            required:
+            - backupRef
+            - checks
+            type: object
+          status:
+            description: KafkaBackupValidation status
+            nullable: true
+            properties:
+              checkResults:
+                description: Per-check results
+                items:
+                  description: Per-check result in status
+                  properties:
+                    checkName:
+                      description: Check name
+                      type: string
+                    durationMs:
+                      description: Duration in milliseconds
+                      format: uint64
+                      minimum: 0.0
+                      nullable: true
+                      type: integer
+                    message:
+                      description: Human-readable detail
+                      nullable: true
+                      type: string
+                    outcome:
+                      description: Outcome (Passed, Failed, Skipped, Warning)
+                      type: string
+                  required:
+                  - checkName
+                  - outcome
+                  type: object
+                type: array
+              checksCompleted:
+                description: Number of checks completed
+                format: uint32
+                minimum: 0.0
+                nullable: true
+                type: integer
+              checksFailed:
+                description: Number of checks failed
+                format: uint32
+                minimum: 0.0
+                nullable: true
+                type: integer
+              checksPassed:
+                description: Number of checks passed
+                format: uint32
+                minimum: 0.0
+                nullable: true
+                type: integer
+              checksTotal:
+                description: Total number of checks configured
+                format: uint32
+                minimum: 0.0
+                nullable: true
+                type: integer
+              checksWarned:
+                description: Number of checks warned
+                format: uint32
+                minimum: 0.0
+                nullable: true
+                type: integer
+              completionTime:
+                description: Validation completion time
+                format: date-time
+                nullable: true
+                type: string
+              conditions:
+                description: Status conditions
+                items:
+                  description: Status condition
+                  properties:
+                    lastTransitionTime:
+                      description: Last transition time
+                      format: date-time
+                      type: string
+                    message:
+                      description: Human-readable message
+                      nullable: true
+                      type: string
+                    reason:
+                      description: Reason for the condition
+                      nullable: true
+                      type: string
+                    status:
+                      description: Status (True, False, Unknown)
+                      type: string
+                    type:
+                      description: Condition type
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - status
+                  - type
+                  type: object
+                type: array
+              evidenceReportPath:
+                description: Path to evidence report in storage
+                nullable: true
+                type: string
+              evidenceReportSigned:
+                description: Whether the evidence report is cryptographically signed
+                nullable: true
+                type: boolean
+              lastValidationTime:
+                description: Last successful validation time
+                format: date-time
+                nullable: true
+                type: string
+              message:
+                description: Human-readable message
+                nullable: true
+                type: string
+              nextScheduledValidation:
+                description: Next scheduled validation time
+                format: date-time
+                nullable: true
+                type: string
+              observedGeneration:
+                description: Observed generation
+                format: int64
+                nullable: true
+                type: integer
+              phase:
+                description: Current phase (Pending, Running, Completed, Failed)
+                nullable: true
+                type: string
+              startTime:
+                description: Validation start time
+                format: date-time
+                nullable: true
+                type: string
+              validationResult:
+                description: Overall validation result (Pass, Fail, Warn)
+                nullable: true
+                type: string
+            type: object
+        required:
+        - spec
+        title: KafkaBackupValidation
         type: object
     served: true
     storage: true

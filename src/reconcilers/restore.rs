@@ -325,10 +325,12 @@ async fn resolve_backup_source(
     _namespace: &str,
 ) -> Result<(String, ResolvedStorage)> {
     match source {
-        ResolvedBackupSource::Storage(storage) => {
-            // Direct storage reference - use a generated backup ID
-            let backup_id = format!("restore-{}", Utc::now().format("%Y%m%d-%H%M%S"));
-            Ok((backup_id, storage.clone()))
+        ResolvedBackupSource::Storage { storage, backup_id } => {
+            // Direct storage reference - use provided backup_id or generate one
+            let resolved_id = backup_id
+                .clone()
+                .unwrap_or_else(|| format!("restore-{}", Utc::now().format("%Y%m%d-%H%M%S")));
+            Ok((resolved_id, storage.clone()))
         }
         ResolvedBackupSource::BackupResource {
             name,

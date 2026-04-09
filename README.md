@@ -228,6 +228,28 @@ resources:
   limits:
     cpu: 500m
     memory: 512Mi
+
+# Extra pod volumes and mounts
+extraVolumes:
+  - name: kafka-tls
+    secret:
+      secretName: kafka-tls-certs
+  - name: custom-config
+    configMap:
+      name: kafka-backup-config
+
+extraVolumeMounts:
+  - name: kafka-tls
+    mountPath: /certs/kafka
+    readOnly: true
+  - name: custom-config
+    mountPath: /config
+    readOnly: true
+
+# Extra env vars for custom CA trust / endpoint behavior
+extraEnv:
+  - name: SSL_CERT_FILE
+    value: /etc/internal-certs/ca.crt
 ```
 
 ## Azure Workload Identity Setup
