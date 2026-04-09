@@ -43,6 +43,8 @@ async fn main() -> anyhow::Result<()> {
         controllers::run_offset_reset_controller(client.clone(), context.clone());
     let offset_rollback_controller =
         controllers::run_offset_rollback_controller(client.clone(), context.clone());
+    let validation_controller =
+        controllers::run_validation_controller(client.clone(), context.clone());
 
     // Handle graceful shutdown
     tokio::select! {
@@ -57,6 +59,9 @@ async fn main() -> anyhow::Result<()> {
         }
         _ = offset_rollback_controller => {
             error!("Offset rollback controller exited unexpectedly");
+        }
+        _ = validation_controller => {
+            error!("Validation controller exited unexpectedly");
         }
         _ = metrics_handle => {
             error!("Metrics server exited unexpectedly");

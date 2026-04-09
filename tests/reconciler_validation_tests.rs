@@ -7,11 +7,13 @@ use std::collections::HashMap;
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kafka_backup_operator::crd::{
-    BackupRef, KafkaBackup, KafkaBackupSpec, KafkaClusterSpec, KafkaOffsetReset,
-    KafkaOffsetResetSpec, KafkaRestore, KafkaRestoreSpec, OffsetMappingRef, OffsetResetStrategy,
-    PitrSpec, PvcStorageSpec, StorageSpec,
+    BackupRef, BackupValidationRef, ConsumerGroupCheckSpec, EvidenceSpec, KafkaBackup,
+    KafkaBackupSpec, KafkaBackupValidation, KafkaBackupValidationSpec, KafkaClusterSpec,
+    KafkaOffsetReset, KafkaOffsetResetSpec, KafkaRestore, KafkaRestoreSpec, MessageCountCheckSpec,
+    OffsetMappingRef, OffsetRangeCheckSpec, OffsetResetStrategy, PitrSpec, PvcStorageSpec,
+    SigningKeyRef, SigningSpec, StorageSpec, ValidationChecksSpec, WebhookCheckSpec,
 };
-use kafka_backup_operator::reconcilers::{backup, offset_reset, restore};
+use kafka_backup_operator::reconcilers::{backup, offset_reset, restore, validation};
 
 // ============================================================================
 // Test Helpers
@@ -666,4 +668,224 @@ fn offset_reset_snapshot_disabled_passes_validation() {
 
     let reset = create_offset_reset(spec);
     assert!(offset_reset::validate(&reset).is_ok());
+}
+
+// ============================================================================
+// KafkaBackupValidation Tests
+// ============================================================================
+
+fn valid_validation_checks() -> ValidationChecksSpec {
+    ValidationChecksSpec {
+        message_count: Some(MessageCountCheckSpec {
+            enabled: true,
+            fail_threshold: None,
+            topics: vec![],
+        }),
+        offset_range: None,
+        consumer_group_offsets: None,
+        custom_webhooks: vec![],
+    }
+}
+
+fn valid_validation_spec() -> KafkaBackupValidationSpec {
+    KafkaBackupValidationSpec {
+        backup_ref: BackupValidationRef {
+            name: "my-backup".to_string(),
+            namespace: None,
+            backup_id: None,
+            storage: None,
+        },
+        kafka_cluster: None,
+        checks: valid_validation_checks(),
+        evidence: None,
+        notifications: None,
+        schedule: None,
+        suspend: false,
+    }
+}
+
+fn create_validation(spec: KafkaBackupValidationSpec) -> KafkaBackupValidation {
+    KafkaBackupValidation {
+        metadata: default_metadata("test-validation"),
+        spec,
+        status: None,
+    }
+}
+
+#[test]
+fn validation_valid_spec_passes() {
+    let v = create_validation(valid_validation_spec());
+    assert!(validation::validate(&v).is_ok());
+}
+
+#[test]
+fn validation_no_backup_ref_fails() {
+    let mut spec = valid_validation_spec();
+    spec.backup_ref.name = String::new();
+    let v = create_validation(spec);
+    assert!(validation::validate(&v).is_err());
+}
+
+#[test]
+fn validation_no_checks_enabled_fails() {
+    let mut spec = valid_validation_spec();
+    spec.checks = ValidationChecksSpec {
+        message_count: Some(MessageCountCheckSpec {
+            enabled: false,
+            fail_threshold: None,
+            topics: vec![],
+        }),
+        offset_range: None,
+        consumer_group_offsets: None,
+        custom_webhooks: vec![],
+    };
+    let v = create_validation(spec);
+    let result = validation::validate(&v);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("At least one"));
+}
+
+#[test]
+fn validation_consumer_group_check_without_kafka_cluster_fails() {
+    let mut spec = valid_validation_spec();
+    spec.checks.consumer_group_offsets = Some(ConsumerGroupCheckSpec {
+        enabled: true,
+        consumer_groups: vec!["my-group".to_string()],
+    });
+    spec.kafka_cluster = None;
+    let v = create_validation(spec);
+    let result = validation::validate(&v);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("kafkaCluster"));
+}
+
+#[test]
+fn validation_consumer_group_check_with_kafka_cluster_passes() {
+    let mut spec = valid_validation_spec();
+    spec.checks.consumer_group_offsets = Some(ConsumerGroupCheckSpec {
+        enabled: true,
+        consumer_groups: vec!["my-group".to_string()],
+    });
+    spec.kafka_cluster = Some(valid_kafka_cluster());
+    let v = create_validation(spec);
+    assert!(validation::validate(&v).is_ok());
+}
+
+#[test]
+fn validation_webhook_without_url_fails() {
+    let mut spec = valid_validation_spec();
+    spec.checks.custom_webhooks = vec![WebhookCheckSpec {
+        name: "empty-webhook".to_string(),
+        url: String::new(),
+        timeout_secs: 30,
+        expected_status_code: 200,
+    }];
+    let v = create_validation(spec);
+    let result = validation::validate(&v);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("URL"));
+}
+
+#[test]
+fn validation_webhook_with_url_passes() {
+    let mut spec = valid_validation_spec();
+    spec.checks.custom_webhooks = vec![WebhookCheckSpec {
+        name: "my-webhook".to_string(),
+        url: "https://example.com/validate".to_string(),
+        timeout_secs: 30,
+        expected_status_code: 200,
+    }];
+    spec.checks.message_count = None;
+    let v = create_validation(spec);
+    assert!(validation::validate(&v).is_ok());
+}
+
+#[test]
+fn validation_invalid_schedule_fails() {
+    let mut spec = valid_validation_spec();
+    spec.schedule = Some("not a valid cron".to_string());
+    let v = create_validation(spec);
+    let result = validation::validate(&v);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("cron"));
+}
+
+#[test]
+fn validation_valid_schedule_passes() {
+    let mut spec = valid_validation_spec();
+    spec.schedule = Some("0 0 */6 * * *".to_string());
+    let v = create_validation(spec);
+    assert!(validation::validate(&v).is_ok());
+}
+
+#[test]
+fn validation_evidence_signing_without_key_fails() {
+    let mut spec = valid_validation_spec();
+    spec.evidence = Some(EvidenceSpec {
+        formats: vec!["json".to_string()],
+        signing: Some(SigningSpec {
+            enabled: true,
+            key_secret: SigningKeyRef {
+                name: String::new(),
+                private_key_key: "key.pem".to_string(),
+                public_key_key: "pub.pem".to_string(),
+            },
+        }),
+        storage: None,
+        retention_days: 90,
+    });
+    let v = create_validation(spec);
+    let result = validation::validate(&v);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("signing"));
+}
+
+#[test]
+fn validation_suspend_passes() {
+    let mut spec = valid_validation_spec();
+    spec.suspend = true;
+    let v = create_validation(spec);
+    assert!(validation::validate(&v).is_ok());
+}
+
+#[test]
+fn validation_direct_storage_ref_passes() {
+    let mut spec = valid_validation_spec();
+    spec.backup_ref.name = String::new();
+    spec.backup_ref.storage = Some(valid_pvc_storage());
+    let v = create_validation(spec);
+    assert!(validation::validate(&v).is_ok());
+}
+
+#[test]
+fn validation_offset_range_only_passes() {
+    let mut spec = valid_validation_spec();
+    spec.checks.message_count = None;
+    spec.checks.offset_range = Some(OffsetRangeCheckSpec { enabled: true });
+    let v = create_validation(spec);
+    assert!(validation::validate(&v).is_ok());
+}
+
+#[test]
+fn validation_all_checks_enabled_passes() {
+    let mut spec = valid_validation_spec();
+    spec.checks.message_count = Some(MessageCountCheckSpec {
+        enabled: true,
+        fail_threshold: Some(10),
+        topics: vec!["topic-a".to_string()],
+    });
+    spec.checks.offset_range = Some(OffsetRangeCheckSpec { enabled: true });
+    spec.checks.consumer_group_offsets = Some(ConsumerGroupCheckSpec {
+        enabled: true,
+        consumer_groups: vec!["group-1".to_string()],
+    });
+    spec.checks.custom_webhooks = vec![WebhookCheckSpec {
+        name: "my-hook".to_string(),
+        url: "https://example.com".to_string(),
+        timeout_secs: 120,
+        expected_status_code: 200,
+    }];
+    spec.kafka_cluster = Some(valid_kafka_cluster());
+    let v = create_validation(spec);
+    assert!(validation::validate(&v).is_ok());
 }

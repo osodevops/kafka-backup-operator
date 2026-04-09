@@ -6,6 +6,7 @@ mod restore_config;
 mod secrets;
 mod storage_config;
 mod tls_files;
+mod validation_config;
 
 pub use backup_config::*;
 pub use core_integration::*;
@@ -13,3 +14,4 @@ pub use restore_config::*;
 pub use secrets::*;
 pub use storage_config::*;
 pub use tls_files::*;
+pub use validation_config::*;
