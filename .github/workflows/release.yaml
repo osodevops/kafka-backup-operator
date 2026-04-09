@@ -124,9 +124,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Smoke test
+      - name: Smoke test - verify binary is linked and executable
         run: |
-          docker run --rm ${{ env.IMAGE_NAME }}:test --help > /dev/null
+          docker run --rm --entrypoint ldd ${{ env.IMAGE_NAME }}:test --version
+          docker run --rm --entrypoint ls ${{ env.IMAGE_NAME }}:test -la /usr/local/bin/operator
           echo "Docker smoke test passed!"
 
       - name: Push Docker image

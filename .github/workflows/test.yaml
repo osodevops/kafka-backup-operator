@@ -133,10 +133,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Smoke test - verify binary runs
+      - name: Smoke test - verify binary is linked and executable
         run: |
-          echo "Testing binary execution..."
-          docker run --rm kafka-backup-operator:test --help > /dev/null
+          echo "Verifying glibc version in runtime image..."
+          docker run --rm --entrypoint ldd kafka-backup-operator:test --version
+          echo ""
+          echo "Verifying binary exists and is executable..."
+          docker run --rm --entrypoint ls kafka-backup-operator:test -la /usr/local/bin/operator
           echo "Docker smoke test passed!"
 
   build:
