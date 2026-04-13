@@ -92,6 +92,7 @@ This release aligns the operator CRDs and adapters with `kafka-backup-core` `v0.
 - Scheduled point-in-time backups should set `stopAtCurrentOffsets: true` so the backup exits after it reaches the high watermarks captured at start.
 - `KafkaBackup` can now snapshot consumer group offsets with `consumerGroupSnapshot: true`; `KafkaRestore` can load those snapshots with `autoConsumerGroups: true`.
 - `KafkaRestore` now exposes `repartitioning`, `produceAcks`, `produceTimeoutMs`, and `purgeTopics`.
+- S3-compatible endpoints can use `storage.s3.pathStyle` and `storage.s3.allowHttp`; `allowHttp` logs a warning because it may enable plaintext object storage traffic.
 - `kafkaCluster.connection.connectionsPerBroker` can be tuned on backup, restore, validation, offset reset, and offset rollback resources.
 - Azure storage authentication validation now accepts the adapter-supported methods: workload identity, service principal, SAS token, account key, or default credential fallback.
 
@@ -155,6 +156,9 @@ spec:
     s3:
       bucket: my-kafka-backups
       region: eu-west-1
+      endpoint: http://minio.storage.svc.cluster.local:9000
+      pathStyle: true
+      allowHttp: true
       prefix: backups
       credentialsSecret:
         name: aws-credentials

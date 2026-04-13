@@ -135,12 +135,23 @@ async fn build_s3_storage(
     )
     .await?;
 
+    let path_style = s3.path_style.unwrap_or(false);
+    let allow_http = s3.allow_http.unwrap_or(false);
+
+    if allow_http {
+        tracing::warn!(
+            bucket = %s3.bucket,
+            endpoint = ?s3.endpoint,
+            "S3 allowHttp is enabled; object storage traffic may use plaintext HTTP"
+        );
+    }
+
     Ok(ResolvedStorage::S3(S3StorageConfig {
         bucket: s3.bucket.clone(),
         region: s3.region.clone(),
         endpoint: s3.endpoint.clone(),
-        path_style: s3.path_style.unwrap_or(false),
-        allow_http: s3.allow_http.unwrap_or(false),
+        path_style,
+        allow_http,
         prefix: s3.prefix.clone(),
         access_key_id,
         secret_access_key,
