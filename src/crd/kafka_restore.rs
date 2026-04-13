@@ -47,6 +47,10 @@ pub struct KafkaRestoreSpec {
     #[serde(default)]
     pub partition_mapping: std::collections::HashMap<i32, i32>,
 
+    /// Per-topic repartitioning, keyed by target topic name
+    #[serde(default)]
+    pub repartitioning: std::collections::HashMap<String, TopicRepartitioningSpec>,
+
     /// Consumer offset reset configuration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset_reset: Option<OffsetResetSpec>,
@@ -67,6 +71,26 @@ pub struct KafkaRestoreSpec {
     #[serde(default)]
     pub dry_run: bool,
 
+    /// Batch size for producing to the target cluster
+    #[serde(default = "default_produce_batch_size")]
+    pub produce_batch_size: usize,
+
+    /// Producer acknowledgement level (-1 = all, 1 = leader, 0 = none)
+    #[serde(default = "default_produce_acks")]
+    pub produce_acks: i16,
+
+    /// Broker-side produce timeout in milliseconds
+    #[serde(default = "default_produce_timeout_ms")]
+    pub produce_timeout_ms: i32,
+
+    /// Purge target topics before restore using Kafka DeleteRecords
+    #[serde(default)]
+    pub purge_topics: bool,
+
+    /// Load consumer groups from the backup consumer-groups snapshot
+    #[serde(default)]
+    pub auto_consumer_groups: bool,
+
     /// Create missing topics during restore
     /// When enabled, topics that exist in the backup but not in the target cluster
     /// will be automatically created before restoring data.
@@ -77,6 +101,34 @@ pub struct KafkaRestoreSpec {
     /// If not specified, the broker's default replication factor is used.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_replication_factor: Option<i16>,
+}
+
+fn default_produce_batch_size() -> usize {
+    1000
+}
+
+fn default_produce_acks() -> i16 {
+    -1
+}
+
+fn default_produce_timeout_ms() -> i32 {
+    30_000
+}
+
+/// Per-topic repartitioning configuration
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TopicRepartitioningSpec {
+    /// Repartitioning strategy (murmur2 or automatic)
+    #[serde(default = "default_repartitioning_strategy")]
+    pub strategy: String,
+
+    /// Number of partitions in the target topic
+    pub target_partitions: i32,
+}
+
+fn default_repartitioning_strategy() -> String {
+    "murmur2".to_string()
 }
 
 /// Backup reference for restore

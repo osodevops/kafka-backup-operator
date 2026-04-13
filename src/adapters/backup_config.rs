@@ -5,8 +5,8 @@
 use kube::Client;
 
 use crate::crd::{
-    CheckpointSpec, CircuitBreakerSpec, KafkaBackup, KafkaClusterSpec, MetricsSpec,
-    RateLimitingSpec,
+    CheckpointSpec, CircuitBreakerSpec, KafkaBackup, KafkaClusterSpec, KafkaConnectionSpec,
+    MetricsSpec, RateLimitingSpec,
 };
 use crate::error::Result;
 
@@ -32,6 +32,8 @@ pub struct ResolvedBackupConfig {
     pub circuit_breaker: Option<ResolvedCircuitBreakerConfig>,
     /// Metrics settings
     pub metrics: Option<ResolvedMetricsConfig>,
+    /// Backup segment and mode settings
+    pub backup_options: ResolvedBackupOptionsConfig,
 }
 
 /// Resolved Kafka cluster configuration with credentials
@@ -41,6 +43,29 @@ pub struct ResolvedKafkaConfig {
     pub security_protocol: String,
     pub tls: Option<TlsCredentials>,
     pub sasl: Option<SaslCredentials>,
+    pub connection: ResolvedKafkaConnectionConfig,
+}
+
+/// Resolved Kafka connection tuning
+#[derive(Debug, Clone)]
+pub struct ResolvedKafkaConnectionConfig {
+    pub tcp_keepalive: bool,
+    pub keepalive_time_secs: u64,
+    pub keepalive_interval_secs: u64,
+    pub tcp_nodelay: bool,
+    pub connections_per_broker: usize,
+}
+
+impl Default for ResolvedKafkaConnectionConfig {
+    fn default() -> Self {
+        Self {
+            tcp_keepalive: true,
+            keepalive_time_secs: 60,
+            keepalive_interval_secs: 20,
+            tcp_nodelay: true,
+            connections_per_broker: 4,
+        }
+    }
 }
 
 /// SASL credentials
@@ -95,6 +120,19 @@ pub struct ResolvedMetricsConfig {
     pub max_partition_labels: usize,
 }
 
+/// Resolved backup behavior and tuning options
+#[derive(Debug, Clone)]
+pub struct ResolvedBackupOptionsConfig {
+    pub segment_max_bytes: u64,
+    pub segment_max_interval_ms: u64,
+    pub continuous: bool,
+    pub stop_at_current_offsets: bool,
+    pub include_offset_headers: bool,
+    pub source_cluster_id: Option<String>,
+    pub poll_interval_ms: u64,
+    pub consumer_group_snapshot: bool,
+}
+
 /// Build fully resolved backup configuration from CRD
 pub async fn build_backup_config(
     backup: &KafkaBackup,
@@ -133,6 +171,17 @@ pub async fn build_backup_config(
     // Build metrics config
     let metrics = backup.spec.metrics.as_ref().map(build_metrics_config);
 
+    let backup_options = ResolvedBackupOptionsConfig {
+        segment_max_bytes: backup.spec.segment_max_bytes,
+        segment_max_interval_ms: backup.spec.segment_max_interval_ms,
+        continuous: backup.spec.continuous,
+        stop_at_current_offsets: backup.spec.stop_at_current_offsets,
+        include_offset_headers: backup.spec.include_offset_headers,
+        source_cluster_id: backup.spec.source_cluster_id.clone(),
+        poll_interval_ms: backup.spec.poll_interval_ms,
+        consumer_group_snapshot: backup.spec.consumer_group_snapshot,
+    };
+
     Ok(ResolvedBackupConfig {
         kafka,
         topics: backup.spec.topics.clone(),
@@ -142,6 +191,7 @@ pub async fn build_backup_config(
         rate_limiting,
         circuit_breaker,
         metrics,
+        backup_options,
     })
 }
 
@@ -193,7 +243,22 @@ pub async fn build_kafka_config(
         security_protocol: kafka.security_protocol.clone(),
         tls,
         sasl,
+        connection: kafka
+            .connection
+            .as_ref()
+            .map(build_connection_config)
+            .unwrap_or_default(),
     })
+}
+
+fn build_connection_config(connection: &KafkaConnectionSpec) -> ResolvedKafkaConnectionConfig {
+    ResolvedKafkaConnectionConfig {
+        tcp_keepalive: connection.tcp_keepalive,
+        keepalive_time_secs: connection.keepalive_time_secs,
+        keepalive_interval_secs: connection.keepalive_interval_secs,
+        tcp_nodelay: connection.tcp_nodelay,
+        connections_per_broker: connection.connections_per_broker,
+    }
 }
 
 fn build_checkpoint_config(checkpoint: &CheckpointSpec) -> ResolvedCheckpointConfig {

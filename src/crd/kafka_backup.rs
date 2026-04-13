@@ -41,6 +41,38 @@ pub struct KafkaBackupSpec {
     #[serde(default = "default_compression_level")]
     pub compression_level: i32,
 
+    /// Maximum segment size in bytes before rotating
+    #[serde(default = "default_segment_max_bytes")]
+    pub segment_max_bytes: u64,
+
+    /// Maximum segment age in milliseconds before rotating
+    #[serde(default = "default_segment_max_interval_ms")]
+    pub segment_max_interval_ms: u64,
+
+    /// Run continuously instead of completing after one pass
+    #[serde(default)]
+    pub continuous: bool,
+
+    /// Snapshot mode: stop once current high watermarks are backed up
+    #[serde(default)]
+    pub stop_at_current_offsets: bool,
+
+    /// Include original offset headers for three-phase restore support
+    #[serde(default = "default_true")]
+    pub include_offset_headers: bool,
+
+    /// Source cluster identifier recorded in manifests and offset headers
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_cluster_id: Option<String>,
+
+    /// Poll interval for continuous mode in milliseconds
+    #[serde(default = "default_poll_interval_ms")]
+    pub poll_interval_ms: u64,
+
+    /// Snapshot consumer group offsets to storage after each backup cycle
+    #[serde(default)]
+    pub consumer_group_snapshot: bool,
+
     /// Cron schedule for automated backups
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schedule: Option<String>,
@@ -74,6 +106,18 @@ fn default_compression_level() -> i32 {
     3
 }
 
+fn default_segment_max_bytes() -> u64 {
+    128 * 1024 * 1024
+}
+
+fn default_segment_max_interval_ms() -> u64 {
+    60_000
+}
+
+fn default_poll_interval_ms() -> u64 {
+    100
+}
+
 /// Kafka cluster connection specification
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -92,10 +136,51 @@ pub struct KafkaClusterSpec {
     /// SASL configuration secret reference
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sasl_secret: Option<SaslSecretRef>,
+
+    /// Kafka TCP connection tuning
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connection: Option<KafkaConnectionSpec>,
 }
 
 fn default_security_protocol() -> String {
     "PLAINTEXT".to_string()
+}
+
+/// Kafka TCP connection tuning
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct KafkaConnectionSpec {
+    /// Enable TCP keepalive
+    #[serde(default = "default_true")]
+    pub tcp_keepalive: bool,
+
+    /// Time in seconds before the first keepalive probe
+    #[serde(default = "default_keepalive_time_secs")]
+    pub keepalive_time_secs: u64,
+
+    /// Interval in seconds between keepalive probes
+    #[serde(default = "default_keepalive_interval_secs")]
+    pub keepalive_interval_secs: u64,
+
+    /// Enable TCP_NODELAY
+    #[serde(default = "default_true")]
+    pub tcp_nodelay: bool,
+
+    /// Number of TCP connections to maintain per broker
+    #[serde(default = "default_connections_per_broker")]
+    pub connections_per_broker: usize,
+}
+
+fn default_keepalive_time_secs() -> u64 {
+    60
+}
+
+fn default_keepalive_interval_secs() -> u64 {
+    20
+}
+
+fn default_connections_per_broker() -> usize {
+    4
 }
 
 /// TLS secret reference
