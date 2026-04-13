@@ -6,8 +6,9 @@ use std::path::PathBuf;
 
 use kafka_backup_core::config::{
     BackupOptions, CompressionType, Config, ConnectionConfig, KafkaConfig, MetricsConfig, Mode,
-    OffsetStorageBackend, OffsetStorageConfig, OffsetStrategy, RestoreOptions, SaslMechanism,
-    SecurityConfig, SecurityProtocol, TopicSelection,
+    OffsetStorageBackend, OffsetStorageConfig, OffsetStrategy, RepartitioningStrategy,
+    RestoreOptions, SaslMechanism, SecurityConfig, SecurityProtocol, TopicRepartitioning,
+    TopicSelection,
 };
 use kafka_backup_core::storage::StorageBackendConfig;
 use kafka_backup_core::validation::{
@@ -93,7 +94,17 @@ fn to_core_kafka_config(resolved: &ResolvedKafkaConfig, topics: &[String]) -> Ka
             include: topics.to_vec(),
             exclude: vec![],
         },
-        connection: ConnectionConfig::default(),
+        connection: to_core_connection_config(resolved),
+    }
+}
+
+pub fn to_core_connection_config(resolved: &ResolvedKafkaConfig) -> ConnectionConfig {
+    ConnectionConfig {
+        tcp_keepalive: resolved.connection.tcp_keepalive,
+        keepalive_time_secs: resolved.connection.keepalive_time_secs,
+        keepalive_interval_secs: resolved.connection.keepalive_interval_secs,
+        tcp_nodelay: resolved.connection.tcp_nodelay,
+        connections_per_broker: resolved.connection.connections_per_broker,
     }
 }
 
@@ -261,27 +272,34 @@ fn to_core_backup_options(resolved: &ResolvedBackupConfig) -> BackupOptions {
         _ => CompressionType::Zstd,
     };
 
-    let (checkpoint_interval_secs, sync_interval_secs, continuous) = match &resolved.checkpoint {
-        Some(cp) if cp.enabled => (cp.interval_secs, cp.interval_secs * 2, true),
-        _ => (5, 30, false),
+    let (checkpoint_interval_secs, sync_interval_secs) = match &resolved.checkpoint {
+        Some(cp) if cp.enabled => (cp.interval_secs, cp.interval_secs * 2),
+        _ => (5, 30),
     };
 
+    let max_concurrent_partitions = resolved
+        .rate_limiting
+        .as_ref()
+        .map(|rl| rl.max_concurrent_partitions)
+        .unwrap_or(8);
+
     BackupOptions {
-        segment_max_bytes: 128 * 1024 * 1024, // 128MB default
-        segment_max_interval_ms: 60_000,      // 60s default
+        segment_max_bytes: resolved.backup_options.segment_max_bytes,
+        segment_max_interval_ms: resolved.backup_options.segment_max_interval_ms,
         compression,
         compression_level: resolved.compression.level,
         start_offset: kafka_backup_core::config::StartOffset::Earliest,
-        continuous,
+        continuous: resolved.backup_options.continuous,
         include_internal_topics: false,
         internal_topics: vec![],
         checkpoint_interval_secs,
         sync_interval_secs,
-        include_offset_headers: true, // Enable for three-phase restore support
-        source_cluster_id: None,
-        stop_at_current_offsets: false,
-        max_concurrent_partitions: 8,
-        poll_interval_ms: 100,
+        include_offset_headers: resolved.backup_options.include_offset_headers,
+        source_cluster_id: resolved.backup_options.source_cluster_id.clone(),
+        stop_at_current_offsets: resolved.backup_options.stop_at_current_offsets,
+        max_concurrent_partitions,
+        poll_interval_ms: resolved.backup_options.poll_interval_ms,
+        consumer_group_snapshot: resolved.backup_options.consumer_group_snapshot,
     }
 }
 
@@ -316,6 +334,24 @@ fn to_core_restore_options(resolved: &ResolvedRestoreConfig) -> RestoreOptions {
         None => (None, None),
     };
 
+    let repartitioning = resolved
+        .repartitioning
+        .iter()
+        .map(|(topic, repartitioning)| {
+            let strategy = match repartitioning.strategy.to_lowercase().as_str() {
+                "automatic" => RepartitioningStrategy::Automatic,
+                _ => RepartitioningStrategy::Murmur2,
+            };
+            (
+                topic.clone(),
+                TopicRepartitioning {
+                    strategy,
+                    target_partitions: repartitioning.target_partitions,
+                },
+            )
+        })
+        .collect();
+
     RestoreOptions {
         time_window_start,
         time_window_end,
@@ -328,7 +364,9 @@ fn to_core_restore_options(resolved: &ResolvedRestoreConfig) -> RestoreOptions {
         rate_limit_records_per_sec,
         rate_limit_bytes_per_sec,
         max_concurrent_partitions,
-        produce_batch_size: 1000,
+        produce_batch_size: resolved.produce_batch_size,
+        produce_acks: resolved.produce_acks,
+        produce_timeout_ms: resolved.produce_timeout_ms,
         checkpoint_state: None,
         checkpoint_interval_secs: 60,
         consumer_groups: vec![],
@@ -336,7 +374,9 @@ fn to_core_restore_options(resolved: &ResolvedRestoreConfig) -> RestoreOptions {
         offset_report: None,
         create_topics: resolved.create_topics,
         default_replication_factor: resolved.default_replication_factor,
-        repartitioning: std::collections::HashMap::new(),
+        repartitioning,
+        purge_topics: resolved.purge_topics,
+        auto_consumer_groups: resolved.auto_consumer_groups,
     }
 }
 

@@ -11,7 +11,8 @@ use kafka_backup_operator::crd::{
     KafkaBackupSpec, KafkaBackupValidation, KafkaBackupValidationSpec, KafkaClusterSpec,
     KafkaOffsetReset, KafkaOffsetResetSpec, KafkaRestore, KafkaRestoreSpec, MessageCountCheckSpec,
     OffsetMappingRef, OffsetRangeCheckSpec, OffsetResetStrategy, PitrSpec, PvcStorageSpec,
-    SigningKeyRef, SigningSpec, StorageSpec, ValidationChecksSpec, WebhookCheckSpec,
+    SigningKeyRef, SigningSpec, StorageSpec, TopicRepartitioningSpec, ValidationChecksSpec,
+    WebhookCheckSpec,
 };
 use kafka_backup_operator::reconcilers::{backup, offset_reset, restore, validation};
 
@@ -25,6 +26,7 @@ fn valid_kafka_cluster() -> KafkaClusterSpec {
         security_protocol: "PLAINTEXT".to_string(),
         tls_secret: None,
         sasl_secret: None,
+        connection: None,
     }
 }
 
@@ -61,6 +63,14 @@ fn valid_backup_spec() -> KafkaBackupSpec {
         storage: valid_pvc_storage(),
         compression: "zstd".to_string(),
         compression_level: 3,
+        segment_max_bytes: 128 * 1024 * 1024,
+        segment_max_interval_ms: 60_000,
+        continuous: false,
+        stop_at_current_offsets: false,
+        include_offset_headers: true,
+        source_cluster_id: None,
+        poll_interval_ms: 100,
+        consumer_group_snapshot: false,
         // cron crate uses 7-field format: sec min hour day_of_month month day_of_week year
         schedule: Some("0 0 0 * * * *".to_string()),
         checkpoint: None,
@@ -277,6 +287,19 @@ fn backup_no_schedule_passes_validation() {
     assert!(backup::validate(&backup).is_ok());
 }
 
+#[test]
+fn backup_continuous_with_snapshot_mode_fails_validation() {
+    let mut spec = valid_backup_spec();
+    spec.continuous = true;
+    spec.stop_at_current_offsets = true;
+
+    let backup = create_backup(spec);
+    let result = backup::validate(&backup);
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("continuous"));
+}
+
 // ============================================================================
 // Restore Validation Tests
 // ============================================================================
@@ -294,11 +317,17 @@ fn valid_restore_spec() -> KafkaRestoreSpec {
         pitr: None,
         topic_mapping: HashMap::new(),
         partition_mapping: HashMap::new(),
+        repartitioning: HashMap::new(),
         offset_reset: None,
         rollback: None,
         rate_limiting: None,
         circuit_breaker: None,
         dry_run: false,
+        produce_batch_size: 1000,
+        produce_acks: -1,
+        produce_timeout_ms: 30_000,
+        purge_topics: false,
+        auto_consumer_groups: false,
         create_topics: false,
         default_replication_factor: None,
     }
@@ -316,6 +345,54 @@ fn create_restore(spec: KafkaRestoreSpec) -> KafkaRestore {
 fn restore_valid_spec_passes_validation() {
     let restore = create_restore(valid_restore_spec());
     assert!(restore::validate(&restore).is_ok());
+}
+
+#[test]
+fn restore_invalid_produce_acks_fails_validation() {
+    let mut spec = valid_restore_spec();
+    spec.produce_acks = 2;
+
+    let restore = create_restore(spec);
+    let result = restore::validate(&restore);
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("produceAcks"));
+}
+
+#[test]
+fn restore_valid_repartitioning_passes_validation() {
+    let mut spec = valid_restore_spec();
+    spec.repartitioning.insert(
+        "orders-restored".to_string(),
+        TopicRepartitioningSpec {
+            strategy: "murmur2".to_string(),
+            target_partitions: 6,
+        },
+    );
+
+    let restore = create_restore(spec);
+    assert!(restore::validate(&restore).is_ok());
+}
+
+#[test]
+fn restore_invalid_repartitioning_strategy_fails_validation() {
+    let mut spec = valid_restore_spec();
+    spec.repartitioning.insert(
+        "orders-restored".to_string(),
+        TopicRepartitioningSpec {
+            strategy: "random".to_string(),
+            target_partitions: 6,
+        },
+    );
+
+    let restore = create_restore(spec);
+    let result = restore::validate(&restore);
+
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("repartitioning strategy"));
 }
 
 #[test]

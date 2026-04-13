@@ -109,6 +109,18 @@ spec:
                 description: Compression level (1-22 for zstd)
                 format: int32
                 type: integer
+              consumerGroupSnapshot:
+                default: false
+                description: Snapshot consumer group offsets to storage after each backup cycle
+                type: boolean
+              continuous:
+                default: false
+                description: Run continuously instead of completing after one pass
+                type: boolean
+              includeOffsetHeaders:
+                default: true
+                description: Include original offset headers for three-phase restore support
+                type: boolean
               kafkaCluster:
                 description: Kafka cluster connection configuration
                 properties:
@@ -117,6 +129,37 @@ spec:
                     items:
                       type: string
                     type: array
+                  connection:
+                    description: Kafka TCP connection tuning
+                    nullable: true
+                    properties:
+                      connectionsPerBroker:
+                        default: 4
+                        description: Number of TCP connections to maintain per broker
+                        format: uint
+                        minimum: 0.0
+                        type: integer
+                      keepaliveIntervalSecs:
+                        default: 20
+                        description: Interval in seconds between keepalive probes
+                        format: uint64
+                        minimum: 0.0
+                        type: integer
+                      keepaliveTimeSecs:
+                        default: 60
+                        description: Time in seconds before the first keepalive probe
+                        format: uint64
+                        minimum: 0.0
+                        type: integer
+                      tcpKeepalive:
+                        default: true
+                        description: Enable TCP keepalive
+                        type: boolean
+                      tcpNodelay:
+                        default: true
+                        description: Enable TCP_NODELAY
+                        type: boolean
+                    type: object
                   saslSecret:
                     description: SASL configuration secret reference
                     nullable: true
@@ -203,6 +246,12 @@ spec:
                     minimum: 0.0
                     type: integer
                 type: object
+              pollIntervalMs:
+                default: 100
+                description: Poll interval for continuous mode in milliseconds
+                format: uint64
+                minimum: 0.0
+                type: integer
               rateLimiting:
                 description: Rate limiting configuration
                 nullable: true
@@ -230,6 +279,26 @@ spec:
                 description: Cron schedule for automated backups
                 nullable: true
                 type: string
+              segmentMaxBytes:
+                default: 134217728
+                description: Maximum segment size in bytes before rotating
+                format: uint64
+                minimum: 0.0
+                type: integer
+              segmentMaxIntervalMs:
+                default: 60000
+                description: Maximum segment age in milliseconds before rotating
+                format: uint64
+                minimum: 0.0
+                type: integer
+              sourceClusterId:
+                description: Source cluster identifier recorded in manifests and offset headers
+                nullable: true
+                type: string
+              stopAtCurrentOffsets:
+                default: false
+                description: 'Snapshot mode: stop once current high watermarks are backed up'
+                type: boolean
               storage:
                 description: Storage configuration
                 properties:
@@ -589,6 +658,10 @@ spec:
           spec:
             description: KafkaRestore resource specification
             properties:
+              autoConsumerGroups:
+                default: false
+                description: Load consumer groups from the backup consumer-groups snapshot
+                type: boolean
               backupRef:
                 description: Reference to backup to restore from
                 properties:
@@ -859,6 +932,37 @@ spec:
                     items:
                       type: string
                     type: array
+                  connection:
+                    description: Kafka TCP connection tuning
+                    nullable: true
+                    properties:
+                      connectionsPerBroker:
+                        default: 4
+                        description: Number of TCP connections to maintain per broker
+                        format: uint
+                        minimum: 0.0
+                        type: integer
+                      keepaliveIntervalSecs:
+                        default: 20
+                        description: Interval in seconds between keepalive probes
+                        format: uint64
+                        minimum: 0.0
+                        type: integer
+                      keepaliveTimeSecs:
+                        default: 60
+                        description: Time in seconds before the first keepalive probe
+                        format: uint64
+                        minimum: 0.0
+                        type: integer
+                      tcpKeepalive:
+                        default: true
+                        description: Enable TCP keepalive
+                        type: boolean
+                      tcpNodelay:
+                        default: true
+                        description: Enable TCP_NODELAY
+                        type: boolean
+                    type: object
                   saslSecret:
                     description: SASL configuration secret reference
                     nullable: true
@@ -962,6 +1066,26 @@ spec:
                     nullable: true
                     type: integer
                 type: object
+              produceAcks:
+                default: -1
+                description: Producer acknowledgement level (-1 = all, 1 = leader, 0 = none)
+                format: int16
+                type: integer
+              produceBatchSize:
+                default: 1000
+                description: Batch size for producing to the target cluster
+                format: uint
+                minimum: 0.0
+                type: integer
+              produceTimeoutMs:
+                default: 30000
+                description: Broker-side produce timeout in milliseconds
+                format: int32
+                type: integer
+              purgeTopics:
+                default: false
+                description: Purge target topics before restore using Kafka DeleteRecords
+                type: boolean
               rateLimiting:
                 description: Rate limiting configuration
                 nullable: true
@@ -984,6 +1108,24 @@ spec:
                     format: uint64
                     minimum: 0.0
                     type: integer
+                type: object
+              repartitioning:
+                additionalProperties:
+                  description: Per-topic repartitioning configuration
+                  properties:
+                    strategy:
+                      default: murmur2
+                      description: Repartitioning strategy (murmur2 or automatic)
+                      type: string
+                    targetPartitions:
+                      description: Number of partitions in the target topic
+                      format: int32
+                      type: integer
+                  required:
+                  - targetPartitions
+                  type: object
+                default: {}
+                description: Per-topic repartitioning, keyed by target topic name
                 type: object
               rollback:
                 description: Rollback safety configuration
@@ -1227,6 +1369,37 @@ spec:
                     items:
                       type: string
                     type: array
+                  connection:
+                    description: Kafka TCP connection tuning
+                    nullable: true
+                    properties:
+                      connectionsPerBroker:
+                        default: 4
+                        description: Number of TCP connections to maintain per broker
+                        format: uint
+                        minimum: 0.0
+                        type: integer
+                      keepaliveIntervalSecs:
+                        default: 20
+                        description: Interval in seconds between keepalive probes
+                        format: uint64
+                        minimum: 0.0
+                        type: integer
+                      keepaliveTimeSecs:
+                        default: 60
+                        description: Time in seconds before the first keepalive probe
+                        format: uint64
+                        minimum: 0.0
+                        type: integer
+                      tcpKeepalive:
+                        default: true
+                        description: Enable TCP keepalive
+                        type: boolean
+                      tcpNodelay:
+                        default: true
+                        description: Enable TCP_NODELAY
+                        type: boolean
+                    type: object
                   saslSecret:
                     description: SASL configuration secret reference
                     nullable: true
@@ -1508,6 +1681,37 @@ spec:
                     items:
                       type: string
                     type: array
+                  connection:
+                    description: Kafka TCP connection tuning
+                    nullable: true
+                    properties:
+                      connectionsPerBroker:
+                        default: 4
+                        description: Number of TCP connections to maintain per broker
+                        format: uint
+                        minimum: 0.0
+                        type: integer
+                      keepaliveIntervalSecs:
+                        default: 20
+                        description: Interval in seconds between keepalive probes
+                        format: uint64
+                        minimum: 0.0
+                        type: integer
+                      keepaliveTimeSecs:
+                        default: 60
+                        description: Time in seconds before the first keepalive probe
+                        format: uint64
+                        minimum: 0.0
+                        type: integer
+                      tcpKeepalive:
+                        default: true
+                        description: Enable TCP keepalive
+                        type: boolean
+                      tcpNodelay:
+                        default: true
+                        description: Enable TCP_NODELAY
+                        type: boolean
+                    type: object
                   saslSecret:
                     description: SASL configuration secret reference
                     nullable: true
@@ -2278,6 +2482,37 @@ spec:
                     items:
                       type: string
                     type: array
+                  connection:
+                    description: Kafka TCP connection tuning
+                    nullable: true
+                    properties:
+                      connectionsPerBroker:
+                        default: 4
+                        description: Number of TCP connections to maintain per broker
+                        format: uint
+                        minimum: 0.0
+                        type: integer
+                      keepaliveIntervalSecs:
+                        default: 20
+                        description: Interval in seconds between keepalive probes
+                        format: uint64
+                        minimum: 0.0
+                        type: integer
+                      keepaliveTimeSecs:
+                        default: 60
+                        description: Time in seconds before the first keepalive probe
+                        format: uint64
+                        minimum: 0.0
+                        type: integer
+                      tcpKeepalive:
+                        default: true
+                        description: Enable TCP keepalive
+                        type: boolean
+                      tcpNodelay:
+                        default: true
+                        description: Enable TCP_NODELAY
+                        type: boolean
+                    type: object
                   saslSecret:
                     description: SASL configuration secret reference
                     nullable: true

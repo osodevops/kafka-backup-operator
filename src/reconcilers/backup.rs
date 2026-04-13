@@ -71,6 +71,38 @@ pub fn validate(backup: &KafkaBackup) -> Result<()> {
         )));
     }
 
+    if backup.spec.segment_max_bytes == 0 {
+        return Err(Error::validation("segmentMaxBytes must be greater than 0"));
+    }
+
+    if backup.spec.segment_max_interval_ms == 0 {
+        return Err(Error::validation(
+            "segmentMaxIntervalMs must be greater than 0",
+        ));
+    }
+
+    if backup.spec.continuous && backup.spec.stop_at_current_offsets {
+        return Err(Error::validation(
+            "continuous and stopAtCurrentOffsets cannot both be true",
+        ));
+    }
+
+    if let Some(rate_limiting) = &backup.spec.rate_limiting {
+        if rate_limiting.max_concurrent_partitions == 0 {
+            return Err(Error::validation(
+                "rateLimiting.maxConcurrentPartitions must be greater than 0",
+            ));
+        }
+    }
+
+    if let Some(connection) = &backup.spec.kafka_cluster.connection {
+        if connection.connections_per_broker == 0 {
+            return Err(Error::validation(
+                "kafkaCluster.connection.connectionsPerBroker must be greater than 0",
+            ));
+        }
+    }
+
     Ok(())
 }
 
@@ -95,10 +127,27 @@ fn validate_storage(storage: &crate::crd::StorageSpec) -> Result<()> {
             let azure = storage.azure.as_ref().ok_or_else(|| {
                 Error::validation("Azure storage selected but azure configuration is missing")
             })?;
-            // Validate that either workload identity or credentials_secret is provided
-            if !azure.use_workload_identity && azure.credentials_secret.is_none() {
+            // The adapter supports workload identity, service principal, SAS token,
+            // account key, and default credential fallback.
+            if azure.credentials_secret.is_some()
+                && (azure.sas_token_secret.is_some()
+                    || azure.service_principal_secret.is_some()
+                    || azure.use_workload_identity)
+            {
                 return Err(Error::validation(
-                    "Azure storage requires either use_workload_identity: true or credentials_secret to be configured"
+                    "Azure storage authentication methods are mutually exclusive",
+                ));
+            }
+            if azure.sas_token_secret.is_some()
+                && (azure.service_principal_secret.is_some() || azure.use_workload_identity)
+            {
+                return Err(Error::validation(
+                    "Azure storage authentication methods are mutually exclusive",
+                ));
+            }
+            if azure.service_principal_secret.is_some() && azure.use_workload_identity {
+                return Err(Error::validation(
+                    "Azure storage authentication methods are mutually exclusive",
                 ));
             }
         }

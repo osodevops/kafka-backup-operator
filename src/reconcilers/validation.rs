@@ -58,6 +58,16 @@ pub fn validate(validation: &KafkaBackupValidation) -> Result<()> {
         ));
     }
 
+    if let Some(kafka_cluster) = &validation.spec.kafka_cluster {
+        if let Some(connection) = &kafka_cluster.connection {
+            if connection.connections_per_broker == 0 {
+                return Err(Error::validation(
+                    "kafkaCluster.connection.connectionsPerBroker must be greater than 0",
+                ));
+            }
+        }
+    }
+
     // Validate schedule if provided
     if let Some(schedule) = &validation.spec.schedule {
         if cron::Schedule::from_str(schedule).is_err() {

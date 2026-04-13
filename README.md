@@ -18,6 +18,7 @@ A Kubernetes operator for automated Kafka backup and disaster recovery. Built wi
 - **Circuit Breaker** - Automatic failure detection and recovery
 - **Topic Mapping** - Restore to different topic names or partitions
 - **Consumer Offset Management** - Reset and rollback consumer group offsets
+- **Validation Evidence** - Validate backups and generate compliance evidence reports
 - **Prometheus Metrics** - Full observability with built-in metrics endpoint
 
 ## Quick Start
@@ -60,7 +61,8 @@ spec:
     storageType: pvc
     pvc:
       claimName: kafka-backups
-  schedule: "0 */6 * * *"  # Every 6 hours
+  schedule: "0 0 */6 * * * *"  # Every 6 hours
+  stopAtCurrentOffsets: true
   compression: zstd
 ```
 
@@ -70,7 +72,7 @@ kubectl apply -f backup.yaml
 
 ## Custom Resource Definitions
 
-The operator provides four CRDs for managing Kafka backup and restore operations:
+The operator provides five CRDs for managing Kafka backup and restore operations:
 
 | CRD | Short Name | Description |
 |-----|------------|-------------|
@@ -78,6 +80,20 @@ The operator provides four CRDs for managing Kafka backup and restore operations
 | `KafkaRestore` | `kr` | Trigger restore operations from backups |
 | `KafkaOffsetReset` | `kor` | Reset consumer group offsets |
 | `KafkaOffsetRollback` | `korb` | Rollback offsets after failed restores |
+| `KafkaBackupValidation` | `kbv` | Validate backups and produce evidence reports |
+
+## Upgrade Notes
+
+### 1.0.0
+
+This release aligns the operator CRDs and adapters with `kafka-backup-core` `v0.12.0`.
+
+- `checkpoint.enabled` no longer makes a `KafkaBackup` run continuously. Set `continuous: true` explicitly for streaming backups.
+- Scheduled point-in-time backups should set `stopAtCurrentOffsets: true` so the backup exits after it reaches the high watermarks captured at start.
+- `KafkaBackup` can now snapshot consumer group offsets with `consumerGroupSnapshot: true`; `KafkaRestore` can load those snapshots with `autoConsumerGroups: true`.
+- `KafkaRestore` now exposes `repartitioning`, `produceAcks`, `produceTimeoutMs`, and `purgeTopics`.
+- `kafkaCluster.connection.connectionsPerBroker` can be tuned on backup, restore, validation, offset reset, and offset rollback resources.
+- Azure storage authentication validation now accepts the adapter-supported methods: workload identity, service principal, SAS token, account key, or default credential fallback.
 
 ## Configuration Examples
 
@@ -109,9 +125,13 @@ spec:
       accountName: mystorageaccount
       prefix: production
       useWorkloadIdentity: true
-  schedule: "0 2 * * *"  # Daily at 2 AM
+  schedule: "0 0 2 * * * *"  # Daily at 2 AM
   compression: zstd
   compressionLevel: 3
+  stopAtCurrentOffsets: true
+  includeOffsetHeaders: true
+  sourceClusterId: production
+  consumerGroupSnapshot: true
   checkpoint:
     enabled: true
     intervalSecs: 30
@@ -140,7 +160,7 @@ spec:
         name: aws-credentials
         accessKeyIdKey: AWS_ACCESS_KEY_ID
         secretAccessKeyKey: AWS_SECRET_ACCESS_KEY
-  schedule: "0 */4 * * *"
+  schedule: "0 0 */4 * * * *"
 ```
 
 ### Restore from Backup
@@ -165,6 +185,15 @@ spec:
   # Optional: Restore to different topic
   topicMapping:
     orders: orders-restored
+  repartitioning:
+    orders-restored:
+      strategy: murmur2
+      targetPartitions: 6
+  createTopics: true
+  produceAcks: -1
+  produceTimeoutMs: 30000
+  autoConsumerGroups: true
+  purgeTopics: false
   # Safety: Create snapshot before restore
   rollback:
     snapshotBeforeRestore: true
@@ -182,10 +211,11 @@ spec:
   kafkaCluster:
     bootstrapServers:
       - kafka-bootstrap:9092
-  consumerGroup: my-consumer-group
+  consumerGroups:
+    - my-consumer-group
   topics:
     - orders
-  resetStrategy: earliest  # earliest, latest, timestamp, offset
+  resetStrategy: to-earliest
 ```
 
 ## Helm Values

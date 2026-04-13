@@ -53,6 +53,53 @@ pub fn validate(restore: &KafkaRestore) -> Result<()> {
         }
     }
 
+    if let Some(rate_limiting) = &restore.spec.rate_limiting {
+        if rate_limiting.max_concurrent_partitions == 0 {
+            return Err(Error::validation(
+                "rateLimiting.maxConcurrentPartitions must be greater than 0",
+            ));
+        }
+    }
+
+    if restore.spec.produce_batch_size == 0 {
+        return Err(Error::validation("produceBatchSize must be greater than 0"));
+    }
+
+    if ![-1, 0, 1].contains(&restore.spec.produce_acks) {
+        return Err(Error::validation("produceAcks must be one of -1, 0, or 1"));
+    }
+
+    if restore.spec.produce_timeout_ms <= 0 {
+        return Err(Error::validation("produceTimeoutMs must be greater than 0"));
+    }
+
+    for (topic, repartitioning) in &restore.spec.repartitioning {
+        if repartitioning.target_partitions <= 0 {
+            return Err(Error::validation(format!(
+                "repartitioning.{}.targetPartitions must be greater than 0",
+                topic
+            )));
+        }
+
+        match repartitioning.strategy.as_str() {
+            "murmur2" | "automatic" => {}
+            other => {
+                return Err(Error::validation(format!(
+                    "Invalid repartitioning strategy '{}': must be one of: murmur2, automatic",
+                    other
+                )));
+            }
+        }
+    }
+
+    if let Some(connection) = &restore.spec.kafka_cluster.connection {
+        if connection.connections_per_broker == 0 {
+            return Err(Error::validation(
+                "kafkaCluster.connection.connectionsPerBroker must be greater than 0",
+            ));
+        }
+    }
+
     Ok(())
 }
 

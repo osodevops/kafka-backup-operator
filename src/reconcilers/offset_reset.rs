@@ -6,9 +6,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use kafka_backup_core::config::KafkaConfig as CoreKafkaConfig;
-use kafka_backup_core::config::{
-    ConnectionConfig, SaslMechanism, SecurityConfig, SecurityProtocol, TopicSelection,
-};
+use kafka_backup_core::config::{SaslMechanism, SecurityConfig, SecurityProtocol, TopicSelection};
 use kafka_backup_core::kafka::consumer_groups::{
     commit_offsets, fetch_offsets, offsets_for_times, CommittedOffset,
 };
@@ -22,7 +20,9 @@ use kube::{
 use serde_json::json;
 use tracing::{error, info, warn};
 
-use crate::adapters::{build_kafka_config, default_tls_dir, TlsFileManager};
+use crate::adapters::{
+    build_kafka_config, default_tls_dir, to_core_connection_config, TlsFileManager,
+};
 use crate::crd::{KafkaOffsetReset, OffsetResetStrategy};
 use crate::error::{Error, Result};
 use crate::metrics;
@@ -72,6 +72,14 @@ pub fn validate(reset: &KafkaOffsetReset) -> Result<()> {
     // Validate parallelism
     if reset.spec.parallelism == 0 {
         return Err(Error::validation("parallelism must be greater than 0"));
+    }
+
+    if let Some(connection) = &reset.spec.kafka_cluster.connection {
+        if connection.connections_per_broker == 0 {
+            return Err(Error::validation(
+                "kafkaCluster.connection.connectionsPerBroker must be greater than 0",
+            ));
+        }
     }
 
     Ok(())
@@ -307,7 +315,7 @@ async fn execute_reset_internal(
             include: reset.spec.topics.clone(),
             exclude: vec![],
         },
-        connection: ConnectionConfig::default(),
+        connection: to_core_connection_config(&resolved_kafka),
     };
 
     // Create and connect KafkaClient

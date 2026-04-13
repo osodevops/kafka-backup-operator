@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use kube::Client;
 
-use crate::crd::{BackupRef, KafkaRestore, PitrSpec, RollbackSpec};
+use crate::crd::{BackupRef, KafkaRestore, PitrSpec, RollbackSpec, TopicRepartitioningSpec};
 use crate::error::Result;
 
 use super::backup_config::{
@@ -28,6 +28,8 @@ pub struct ResolvedRestoreConfig {
     pub topic_mapping: HashMap<String, String>,
     /// Partition remapping
     pub partition_mapping: HashMap<i32, i32>,
+    /// Per-topic repartitioning
+    pub repartitioning: HashMap<String, ResolvedTopicRepartitioningConfig>,
     /// PITR configuration
     pub pitr: Option<ResolvedPitrConfig>,
     /// Rollback configuration
@@ -38,6 +40,16 @@ pub struct ResolvedRestoreConfig {
     pub circuit_breaker: Option<ResolvedCircuitBreakerConfig>,
     /// Dry run mode
     pub dry_run: bool,
+    /// Batch size for producing to target cluster
+    pub produce_batch_size: usize,
+    /// Producer ack level
+    pub produce_acks: i16,
+    /// Producer timeout in milliseconds
+    pub produce_timeout_ms: i32,
+    /// Purge target topics before restore
+    pub purge_topics: bool,
+    /// Load consumer groups from backup snapshot
+    pub auto_consumer_groups: bool,
     /// Create missing topics during restore
     pub create_topics: bool,
     /// Default replication factor for auto-created topics
@@ -76,6 +88,13 @@ pub struct ResolvedRollbackConfig {
     pub snapshot_retention_hours: u32,
     pub auto_rollback_on_failure: bool,
     pub snapshot_path: Option<String>,
+}
+
+/// Resolved repartitioning configuration
+#[derive(Debug, Clone)]
+pub struct ResolvedTopicRepartitioningConfig {
+    pub strategy: String,
+    pub target_partitions: i32,
 }
 
 /// Build fully resolved restore configuration from CRD
@@ -127,11 +146,24 @@ pub async fn build_restore_config(
         topics: restore.spec.topics.clone(),
         topic_mapping: restore.spec.topic_mapping.clone(),
         partition_mapping: restore.spec.partition_mapping.clone(),
+        repartitioning: restore
+            .spec
+            .repartitioning
+            .iter()
+            .map(|(topic, repartitioning)| {
+                (topic.clone(), build_repartitioning_config(repartitioning))
+            })
+            .collect(),
         pitr,
         rollback,
         rate_limiting,
         circuit_breaker,
         dry_run: restore.spec.dry_run,
+        produce_batch_size: restore.spec.produce_batch_size,
+        produce_acks: restore.spec.produce_acks,
+        produce_timeout_ms: restore.spec.produce_timeout_ms,
+        purge_topics: restore.spec.purge_topics,
+        auto_consumer_groups: restore.spec.auto_consumer_groups,
         create_topics: restore.spec.create_topics,
         default_replication_factor: restore.spec.default_replication_factor,
     })
@@ -195,5 +227,14 @@ fn build_rollback_config(rollback: &RollbackSpec) -> ResolvedRollbackConfig {
         snapshot_retention_hours: rollback.snapshot_retention_hours,
         auto_rollback_on_failure: rollback.auto_rollback_on_failure,
         snapshot_path,
+    }
+}
+
+fn build_repartitioning_config(
+    repartitioning: &TopicRepartitioningSpec,
+) -> ResolvedTopicRepartitioningConfig {
+    ResolvedTopicRepartitioningConfig {
+        strategy: repartitioning.strategy.clone(),
+        target_partitions: repartitioning.target_partitions,
     }
 }
