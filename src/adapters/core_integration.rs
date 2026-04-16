@@ -32,7 +32,8 @@ pub fn to_core_backup_config(
     backup_id: &str,
     tls_manager: Option<&TlsFileManager>,
 ) -> kafka_backup_core::Result<Config> {
-    let kafka_config = to_core_kafka_config_with_tls(&resolved.kafka, &resolved.topics, tls_manager);
+    let kafka_config =
+        to_core_kafka_config_with_tls(&resolved.kafka, &resolved.topics, tls_manager);
     let storage_config = to_core_storage_config(&resolved.storage);
     let backup_options = to_core_backup_options(resolved);
 
@@ -65,7 +66,8 @@ pub fn to_core_restore_config(
     storage: &ResolvedStorage,
     tls_manager: Option<&TlsFileManager>,
 ) -> kafka_backup_core::Result<Config> {
-    let kafka_config = to_core_kafka_config_with_tls(&resolved.kafka, &resolved.topics, tls_manager);
+    let kafka_config =
+        to_core_kafka_config_with_tls(&resolved.kafka, &resolved.topics, tls_manager);
     let storage_config = to_core_storage_config(storage);
     let restore_options = to_core_restore_options(resolved);
 
@@ -91,7 +93,11 @@ fn to_core_kafka_config(resolved: &ResolvedKafkaConfig, topics: &[String]) -> Ka
 }
 
 /// Convert resolved Kafka configuration to kafka-backup-core KafkaConfig with TLS
-fn to_core_kafka_config_with_tls(resolved: &ResolvedKafkaConfig, topics: &[String], tls_manager: Option<&TlsFileManager>) -> KafkaConfig {
+fn to_core_kafka_config_with_tls(
+    resolved: &ResolvedKafkaConfig,
+    topics: &[String],
+    tls_manager: Option<&TlsFileManager>,
+) -> KafkaConfig {
     let security = to_core_security_config_with_tls(resolved, tls_manager);
 
     KafkaConfig {

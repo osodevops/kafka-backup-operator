@@ -339,8 +339,9 @@ async fn execute_restore_internal(
     };
 
     // 3. Convert to kafka-backup-core Config
-    let core_config = to_core_restore_config(&resolved_config, &backup_id, &storage, tls_manager.as_ref())
-        .map_err(|e| Error::Core(format!("Failed to build core config: {}", e)))?;
+    let core_config =
+        to_core_restore_config(&resolved_config, &backup_id, &storage, tls_manager.as_ref())
+            .map_err(|e| Error::Core(format!("Failed to build core config: {}", e)))?;
 
     // 4. Create the restore engine (sync constructor)
     let engine = RestoreEngine::new(core_config)

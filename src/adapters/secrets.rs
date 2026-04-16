@@ -158,6 +158,7 @@ pub async fn get_ca_certificate(
 /// When `ca_secret_name` / `ca_secret_key` are provided, the CA certificate is
 /// read from that secret instead of from `tls_secret_name`. This supports Strimzi
 /// deployments where the cluster CA and client certificates are in separate secrets.
+#[allow(clippy::too_many_arguments)]
 pub async fn get_tls_credentials_split(
     client: &Client,
     namespace: &str,

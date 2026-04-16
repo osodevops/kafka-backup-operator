@@ -21,7 +21,9 @@ use serde_json::json;
 use std::str::FromStr;
 use tracing::{debug, error, info};
 
-use crate::adapters::{build_backup_config, default_tls_dir, to_core_backup_config, ResolvedStorage, TlsFileManager};
+use crate::adapters::{
+    build_backup_config, default_tls_dir, to_core_backup_config, ResolvedStorage, TlsFileManager,
+};
 use crate::crd::KafkaBackup;
 use crate::error::{Error, Result};
 use crate::metrics;

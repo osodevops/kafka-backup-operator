@@ -210,8 +210,15 @@ pub async fn build_kafka_config(
                 client,
                 namespace,
                 kafka.tls_secret.as_ref().map(|t| t.name.as_str()),
-                kafka.tls_secret.as_ref().map(|t| t.ca_key.as_str()).unwrap_or("ca.crt"),
-                kafka.tls_secret.as_ref().and_then(|t| t.cert_key.as_deref()),
+                kafka
+                    .tls_secret
+                    .as_ref()
+                    .map(|t| t.ca_key.as_str())
+                    .unwrap_or("ca.crt"),
+                kafka
+                    .tls_secret
+                    .as_ref()
+                    .and_then(|t| t.cert_key.as_deref()),
                 kafka.tls_secret.as_ref().and_then(|t| t.key_key.as_deref()),
                 kafka.ca_secret.as_ref().map(|c| c.name.as_str()),
                 kafka.ca_secret.as_ref().map(|c| c.ca_key.as_str()),
