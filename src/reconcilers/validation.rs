@@ -59,6 +59,17 @@ pub fn validate(validation: &KafkaBackupValidation) -> Result<()> {
     }
 
     if let Some(kafka_cluster) = &validation.spec.kafka_cluster {
+        // Validate TLS configuration: SSL/SASL_SSL requires at least one TLS secret
+        let protocol = kafka_cluster.security_protocol.to_uppercase();
+        if (protocol == "SSL" || protocol == "SASL_SSL")
+            && kafka_cluster.tls_secret.is_none()
+            && kafka_cluster.ca_secret.is_none()
+        {
+            return Err(Error::validation(
+                "securityProtocol SSL/SASL_SSL requires either tlsSecret or caSecret to be configured",
+            ));
+        }
+
         if let Some(connection) = &kafka_cluster.connection {
             if connection.connections_per_broker == 0 {
                 return Err(Error::validation(

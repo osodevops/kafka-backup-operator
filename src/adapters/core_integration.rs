@@ -30,8 +30,9 @@ use super::validation_config::{ResolvedEvidenceConfig, ResolvedValidationConfig}
 pub fn to_core_backup_config(
     resolved: &ResolvedBackupConfig,
     backup_id: &str,
+    tls_manager: Option<&TlsFileManager>,
 ) -> kafka_backup_core::Result<Config> {
-    let kafka_config = to_core_kafka_config(&resolved.kafka, &resolved.topics);
+    let kafka_config = to_core_kafka_config_with_tls(&resolved.kafka, &resolved.topics, tls_manager);
     let storage_config = to_core_storage_config(&resolved.storage);
     let backup_options = to_core_backup_options(resolved);
 
@@ -62,8 +63,9 @@ pub fn to_core_restore_config(
     resolved: &ResolvedRestoreConfig,
     backup_id: &str,
     storage: &ResolvedStorage,
+    tls_manager: Option<&TlsFileManager>,
 ) -> kafka_backup_core::Result<Config> {
-    let kafka_config = to_core_kafka_config(&resolved.kafka, &resolved.topics);
+    let kafka_config = to_core_kafka_config_with_tls(&resolved.kafka, &resolved.topics, tls_manager);
     let storage_config = to_core_storage_config(storage);
     let restore_options = to_core_restore_options(resolved);
 
@@ -85,7 +87,12 @@ pub fn to_core_restore_config(
 
 /// Convert resolved Kafka configuration to kafka-backup-core KafkaConfig
 fn to_core_kafka_config(resolved: &ResolvedKafkaConfig, topics: &[String]) -> KafkaConfig {
-    let security = to_core_security_config(resolved);
+    to_core_kafka_config_with_tls(resolved, topics, None)
+}
+
+/// Convert resolved Kafka configuration to kafka-backup-core KafkaConfig with TLS
+fn to_core_kafka_config_with_tls(resolved: &ResolvedKafkaConfig, topics: &[String], tls_manager: Option<&TlsFileManager>) -> KafkaConfig {
+    let security = to_core_security_config_with_tls(resolved, tls_manager);
 
     KafkaConfig {
         bootstrap_servers: resolved.bootstrap_servers.clone(),
@@ -106,11 +113,6 @@ pub fn to_core_connection_config(resolved: &ResolvedKafkaConfig) -> ConnectionCo
         tcp_nodelay: resolved.connection.tcp_nodelay,
         connections_per_broker: resolved.connection.connections_per_broker,
     }
-}
-
-/// Convert security configuration
-fn to_core_security_config(resolved: &ResolvedKafkaConfig) -> SecurityConfig {
-    to_core_security_config_with_tls(resolved, None)
 }
 
 /// Convert security configuration with optional pre-created TLS files

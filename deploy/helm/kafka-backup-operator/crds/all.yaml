@@ -129,6 +129,20 @@ spec:
                     items:
                       type: string
                     type: array
+                  caSecret:
+                    description: Separate CA certificate secret (overrides caKey in tlsSecret when both are set). Useful for Strimzi where the cluster CA and client certificates are in separate secrets.
+                    nullable: true
+                    properties:
+                      caKey:
+                        default: ca.crt
+                        description: Key within the secret for the CA certificate PEM
+                        type: string
+                      name:
+                        description: Secret name containing the CA certificate
+                        type: string
+                    required:
+                    - name
+                    type: object
                   connection:
                     description: Kafka TCP connection tuning
                     nullable: true
@@ -932,6 +946,20 @@ spec:
                     items:
                       type: string
                     type: array
+                  caSecret:
+                    description: Separate CA certificate secret (overrides caKey in tlsSecret when both are set). Useful for Strimzi where the cluster CA and client certificates are in separate secrets.
+                    nullable: true
+                    properties:
+                      caKey:
+                        default: ca.crt
+                        description: Key within the secret for the CA certificate PEM
+                        type: string
+                      name:
+                        description: Secret name containing the CA certificate
+                        type: string
+                    required:
+                    - name
+                    type: object
                   connection:
                     description: Kafka TCP connection tuning
                     nullable: true
@@ -1369,6 +1397,20 @@ spec:
                     items:
                       type: string
                     type: array
+                  caSecret:
+                    description: Separate CA certificate secret (overrides caKey in tlsSecret when both are set). Useful for Strimzi where the cluster CA and client certificates are in separate secrets.
+                    nullable: true
+                    properties:
+                      caKey:
+                        default: ca.crt
+                        description: Key within the secret for the CA certificate PEM
+                        type: string
+                      name:
+                        description: Secret name containing the CA certificate
+                        type: string
+                    required:
+                    - name
+                    type: object
                   connection:
                     description: Kafka TCP connection tuning
                     nullable: true
@@ -1681,6 +1723,20 @@ spec:
                     items:
                       type: string
                     type: array
+                  caSecret:
+                    description: Separate CA certificate secret (overrides caKey in tlsSecret when both are set). Useful for Strimzi where the cluster CA and client certificates are in separate secrets.
+                    nullable: true
+                    properties:
+                      caKey:
+                        default: ca.crt
+                        description: Key within the secret for the CA certificate PEM
+                        type: string
+                      name:
+                        description: Secret name containing the CA certificate
+                        type: string
+                    required:
+                    - name
+                    type: object
                   connection:
                     description: Kafka TCP connection tuning
                     nullable: true
@@ -2482,6 +2538,20 @@ spec:
                     items:
                       type: string
                     type: array
+                  caSecret:
+                    description: Separate CA certificate secret (overrides caKey in tlsSecret when both are set). Useful for Strimzi where the cluster CA and client certificates are in separate secrets.
+                    nullable: true
+                    properties:
+                      caKey:
+                        default: ca.crt
+                        description: Key within the secret for the CA certificate PEM
+                        type: string
+                      name:
+                        description: Secret name containing the CA certificate
+                        type: string
+                    required:
+                    - name
+                    type: object
                   connection:
                     description: Kafka TCP connection tuning
                     nullable: true

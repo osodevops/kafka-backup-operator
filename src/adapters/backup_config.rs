@@ -10,7 +10,7 @@ use crate::crd::{
 };
 use crate::error::Result;
 
-use super::secrets::{get_sasl_credentials, get_tls_credentials, TlsCredentials};
+use super::secrets::{get_sasl_credentials, get_tls_credentials_split, TlsCredentials};
 use super::storage_config::{build_storage_config, ResolvedStorage};
 
 /// Fully resolved backup configuration
@@ -202,15 +202,19 @@ pub async fn build_kafka_config(
     namespace: &str,
 ) -> Result<ResolvedKafkaConfig> {
     // Resolve TLS credentials if configured
-    let tls = if let Some(tls_ref) = &kafka.tls_secret {
+    let has_tls = kafka.tls_secret.is_some();
+    let has_ca = kafka.ca_secret.is_some();
+    let tls = if has_tls || has_ca {
         Some(
-            get_tls_credentials(
+            get_tls_credentials_split(
                 client,
                 namespace,
-                &tls_ref.name,
-                &tls_ref.ca_key,
-                tls_ref.cert_key.as_deref(),
-                tls_ref.key_key.as_deref(),
+                kafka.tls_secret.as_ref().map(|t| t.name.as_str()),
+                kafka.tls_secret.as_ref().map(|t| t.ca_key.as_str()).unwrap_or("ca.crt"),
+                kafka.tls_secret.as_ref().and_then(|t| t.cert_key.as_deref()),
+                kafka.tls_secret.as_ref().and_then(|t| t.key_key.as_deref()),
+                kafka.ca_secret.as_ref().map(|c| c.name.as_str()),
+                kafka.ca_secret.as_ref().map(|c| c.ca_key.as_str()),
             )
             .await?,
         )

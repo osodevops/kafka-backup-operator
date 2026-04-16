@@ -1,0 +1,29 @@
+apiVersion: kafka.oso.sh/v1alpha1
+kind: KafkaRestore
+metadata:
+  name: restore-test
+  namespace: kafka
+spec:
+  backupRef:
+    name: backup-test-topic
+  kafkaCluster:
+    bootstrapServers:
+      - my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9093
+    securityProtocol: SSL
+    # Same split-secret pattern as backup
+    caSecret:
+      name: my-cluster-cluster-ca-cert
+      caKey: ca.crt
+    tlsSecret:
+      name: backup-user
+      certKey: user.crt
+      keyKey: user.key
+  topics:
+    - backup-test-topic
+  topicMapping:
+    backup-test-topic: restored-topic
+  createTopics: true
+  autoConsumerGroups: false
+  produceBatchSize: 1000
+  produceAcks: -1
+  produceTimeoutMs: 30000

@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-producer
+  namespace: kafka
+  labels:
+    app: kafka-producer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-producer
+  template:
+    metadata:
+      labels:
+        app: kafka-producer
+    spec:
+      containers:
+        - name: kafka-producer
+          image: quay.io/strimzi/kafka:0.40.0-kafka-3.7.0
+          command:
+            - /bin/bash
+            - -c
+            - |
+              echo "Waiting for Kafka to be ready..."
+              sleep 30
+
+              # Extract certs from Strimzi secrets (mounted as volumes)
+              BOOTSTRAP=my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9093
+
+              # Create producer properties for TLS
+              cat > /tmp/producer.properties <<EOF
+              security.protocol=SSL
+              ssl.truststore.location=/tmp/truststore.p12
+              ssl.truststore.password=changeit
+              ssl.truststore.type=PKCS12
+              ssl.keystore.location=/tmp/keystore.p12
+              ssl.keystore.password=changeit
+              ssl.keystore.type=PKCS12
+              EOF
+
+              # Build PKCS12 truststore from CA cert
+              keytool -import -trustcacerts -alias ca \
+                -file /opt/kafka/cluster-ca/ca.crt \
+                -keystore /tmp/truststore.p12 \
+                -storetype PKCS12 \
+                -storepass changeit -noprompt
+
+              # Build PKCS12 keystore from user cert + key
+              openssl pkcs12 -export \
+                -in /opt/kafka/user-certs/user.crt \
+                -inkey /opt/kafka/user-certs/user.key \
+                -out /tmp/keystore.p12 \
+                -password pass:changeit \
+                -name backup-user
+
+              echo "Starting continuous message production to backup-test-topic..."
+              count=0
+              while true; do
+                for i in $(seq 1 100); do
+                  count=$((count + 1))
+                  echo "{\"id\": $count, \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\", \"message\": \"Test message $count\", \"source\": \"kafka-producer\"}"
+                done | bin/kafka-console-producer.sh \
+                  --bootstrap-server $BOOTSTRAP \
+                  --topic backup-test-topic \
+                  --producer.config /tmp/producer.properties
+
+                echo "Produced 100 messages (total: $count). Sleeping 10 seconds..."
+                sleep 10
+              done
+          volumeMounts:
+            - name: cluster-ca
+              mountPath: /opt/kafka/cluster-ca
+              readOnly: true
+            - name: user-certs
+              mountPath: /opt/kafka/user-certs
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 512Mi
+      volumes:
+        - name: cluster-ca
+          secret:
+            secretName: my-cluster-cluster-ca-cert
+        - name: user-certs
+          secret:
+            secretName: backup-user
+      restartPolicy: Always

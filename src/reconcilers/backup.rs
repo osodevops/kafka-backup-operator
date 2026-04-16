@@ -21,7 +21,7 @@ use serde_json::json;
 use std::str::FromStr;
 use tracing::{debug, error, info};
 
-use crate::adapters::{build_backup_config, to_core_backup_config, ResolvedStorage};
+use crate::adapters::{build_backup_config, default_tls_dir, to_core_backup_config, ResolvedStorage, TlsFileManager};
 use crate::crd::KafkaBackup;
 use crate::error::{Error, Result};
 use crate::metrics;
@@ -93,6 +93,17 @@ pub fn validate(backup: &KafkaBackup) -> Result<()> {
                 "rateLimiting.maxConcurrentPartitions must be greater than 0",
             ));
         }
+    }
+
+    // Validate TLS configuration: SSL/SASL_SSL requires at least one TLS secret
+    let protocol = backup.spec.kafka_cluster.security_protocol.to_uppercase();
+    if (protocol == "SSL" || protocol == "SASL_SSL")
+        && backup.spec.kafka_cluster.tls_secret.is_none()
+        && backup.spec.kafka_cluster.ca_secret.is_none()
+    {
+        return Err(Error::validation(
+            "securityProtocol SSL/SASL_SSL requires either tlsSecret or caSecret to be configured",
+        ));
     }
 
     if let Some(connection) = &backup.spec.kafka_cluster.connection {
@@ -392,8 +403,16 @@ async fn execute_backup_internal(
     // 2. Ensure storage directory exists before creating the backup engine
     ensure_storage_directories(&resolved_config.storage)?;
 
+    // 2b. Create TLS file manager if TLS is configured
+    let tls_manager = if let Some(tls) = &resolved_config.kafka.tls {
+        let tls_dir = default_tls_dir(&name);
+        Some(TlsFileManager::new(tls, &tls_dir)?)
+    } else {
+        None
+    };
+
     // 3. Convert to kafka-backup-core Config
-    let core_config = to_core_backup_config(&resolved_config, &backup_id)
+    let core_config = to_core_backup_config(&resolved_config, &backup_id, tls_manager.as_ref())
         .map_err(|e| Error::Core(format!("Failed to build core config: {}", e)))?;
 
     info!(

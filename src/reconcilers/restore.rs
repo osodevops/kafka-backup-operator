@@ -20,7 +20,8 @@ use serde_json::json;
 use tracing::{error, info, warn};
 
 use crate::adapters::{
-    build_restore_config, to_core_restore_config, ResolvedBackupSource, ResolvedStorage,
+    build_restore_config, default_tls_dir, to_core_restore_config, ResolvedBackupSource,
+    ResolvedStorage, TlsFileManager,
 };
 use crate::crd::{KafkaBackup, KafkaRestore};
 use crate::error::{Error, Result};
@@ -90,6 +91,17 @@ pub fn validate(restore: &KafkaRestore) -> Result<()> {
                 )));
             }
         }
+    }
+
+    // Validate TLS configuration: SSL/SASL_SSL requires at least one TLS secret
+    let protocol = restore.spec.kafka_cluster.security_protocol.to_uppercase();
+    if (protocol == "SSL" || protocol == "SASL_SSL")
+        && restore.spec.kafka_cluster.tls_secret.is_none()
+        && restore.spec.kafka_cluster.ca_secret.is_none()
+    {
+        return Err(Error::validation(
+            "securityProtocol SSL/SASL_SSL requires either tlsSecret or caSecret to be configured",
+        ));
     }
 
     if let Some(connection) = &restore.spec.kafka_cluster.connection {
@@ -318,8 +330,16 @@ async fn execute_restore_internal(
         "Starting restore engine"
     );
 
+    // 2b. Create TLS file manager if TLS is configured
+    let tls_manager = if let Some(tls) = &resolved_config.kafka.tls {
+        let tls_dir = default_tls_dir(&name);
+        Some(TlsFileManager::new(tls, &tls_dir)?)
+    } else {
+        None
+    };
+
     // 3. Convert to kafka-backup-core Config
-    let core_config = to_core_restore_config(&resolved_config, &backup_id, &storage)
+    let core_config = to_core_restore_config(&resolved_config, &backup_id, &storage, tls_manager.as_ref())
         .map_err(|e| Error::Core(format!("Failed to build core config: {}", e)))?;
 
     // 4. Create the restore engine (sync constructor)
