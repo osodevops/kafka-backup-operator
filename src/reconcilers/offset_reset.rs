@@ -74,6 +74,17 @@ pub fn validate(reset: &KafkaOffsetReset) -> Result<()> {
         return Err(Error::validation("parallelism must be greater than 0"));
     }
 
+    // Validate TLS configuration: SSL/SASL_SSL requires at least one TLS secret
+    let protocol = reset.spec.kafka_cluster.security_protocol.to_uppercase();
+    if (protocol == "SSL" || protocol == "SASL_SSL")
+        && reset.spec.kafka_cluster.tls_secret.is_none()
+        && reset.spec.kafka_cluster.ca_secret.is_none()
+    {
+        return Err(Error::validation(
+            "securityProtocol SSL/SASL_SSL requires either tlsSecret or caSecret to be configured",
+        ));
+    }
+
     if let Some(connection) = &reset.spec.kafka_cluster.connection {
         if connection.connections_per_broker == 0 {
             return Err(Error::validation(

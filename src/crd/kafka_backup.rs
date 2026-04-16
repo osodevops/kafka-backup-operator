@@ -133,6 +133,11 @@ pub struct KafkaClusterSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tls_secret: Option<TlsSecretRef>,
 
+    /// Separate CA certificate secret (overrides caKey in tlsSecret when both are set).
+    /// Useful for Strimzi where the cluster CA and client certificates are in separate secrets.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ca_secret: Option<CaSecretRef>,
+
     /// SASL configuration secret reference
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sasl_secret: Option<SaslSecretRef>,
@@ -202,6 +207,17 @@ pub struct TlsSecretRef {
 
 fn default_ca_key() -> String {
     "ca.crt".to_string()
+}
+
+/// Separate CA certificate secret reference (e.g. Strimzi cluster CA)
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CaSecretRef {
+    /// Secret name containing the CA certificate
+    pub name: String,
+    /// Key within the secret for the CA certificate PEM
+    #[serde(default = "default_ca_key")]
+    pub ca_key: String,
 }
 
 /// SASL secret reference

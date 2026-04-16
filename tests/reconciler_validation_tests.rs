@@ -7,12 +7,12 @@ use std::collections::HashMap;
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kafka_backup_operator::crd::{
-    BackupRef, BackupValidationRef, ConsumerGroupCheckSpec, EvidenceSpec, KafkaBackup,
+    BackupRef, BackupValidationRef, CaSecretRef, ConsumerGroupCheckSpec, EvidenceSpec, KafkaBackup,
     KafkaBackupSpec, KafkaBackupValidation, KafkaBackupValidationSpec, KafkaClusterSpec,
     KafkaOffsetReset, KafkaOffsetResetSpec, KafkaRestore, KafkaRestoreSpec, MessageCountCheckSpec,
     OffsetMappingRef, OffsetRangeCheckSpec, OffsetResetStrategy, PitrSpec, PvcStorageSpec,
-    SigningKeyRef, SigningSpec, StorageSpec, TopicRepartitioningSpec, ValidationChecksSpec,
-    WebhookCheckSpec,
+    SigningKeyRef, SigningSpec, StorageSpec, TlsSecretRef, TopicRepartitioningSpec,
+    ValidationChecksSpec, WebhookCheckSpec,
 };
 use kafka_backup_operator::reconcilers::{backup, offset_reset, restore, validation};
 
@@ -25,6 +25,7 @@ fn valid_kafka_cluster() -> KafkaClusterSpec {
         bootstrap_servers: vec!["kafka:9092".to_string()],
         security_protocol: "PLAINTEXT".to_string(),
         tls_secret: None,
+        ca_secret: None,
         sasl_secret: None,
         connection: None,
     }
@@ -298,6 +299,117 @@ fn backup_continuous_with_snapshot_mode_fails_validation() {
 
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("continuous"));
+}
+
+// ============================================================================
+// TLS Secret Validation Tests
+// ============================================================================
+
+#[test]
+fn backup_ssl_without_any_tls_config_fails_validation() {
+    let mut spec = valid_backup_spec();
+    spec.kafka_cluster.security_protocol = "SSL".to_string();
+    spec.kafka_cluster.tls_secret = None;
+    spec.kafka_cluster.ca_secret = None;
+
+    let backup = create_backup(spec);
+    let result = backup::validate(&backup);
+
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("tlsSecret or caSecret"));
+}
+
+#[test]
+fn backup_sasl_ssl_without_any_tls_config_fails_validation() {
+    let mut spec = valid_backup_spec();
+    spec.kafka_cluster.security_protocol = "SASL_SSL".to_string();
+    spec.kafka_cluster.tls_secret = None;
+    spec.kafka_cluster.ca_secret = None;
+
+    let backup = create_backup(spec);
+    let result = backup::validate(&backup);
+
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("tlsSecret or caSecret"));
+}
+
+#[test]
+fn backup_ssl_with_tls_secret_only_passes_validation() {
+    let mut spec = valid_backup_spec();
+    spec.kafka_cluster.security_protocol = "SSL".to_string();
+    spec.kafka_cluster.tls_secret = Some(TlsSecretRef {
+        name: "kafka-tls".to_string(),
+        ca_key: "ca.crt".to_string(),
+        cert_key: Some("tls.crt".to_string()),
+        key_key: Some("tls.key".to_string()),
+    });
+
+    let backup = create_backup(spec);
+    assert!(backup::validate(&backup).is_ok());
+}
+
+#[test]
+fn backup_ssl_with_ca_secret_only_passes_validation() {
+    let mut spec = valid_backup_spec();
+    spec.kafka_cluster.security_protocol = "SSL".to_string();
+    spec.kafka_cluster.ca_secret = Some(CaSecretRef {
+        name: "cluster-ca-cert".to_string(),
+        ca_key: "ca.crt".to_string(),
+    });
+
+    let backup = create_backup(spec);
+    assert!(backup::validate(&backup).is_ok());
+}
+
+#[test]
+fn backup_ssl_with_both_secrets_passes_validation() {
+    let mut spec = valid_backup_spec();
+    spec.kafka_cluster.security_protocol = "SSL".to_string();
+    spec.kafka_cluster.ca_secret = Some(CaSecretRef {
+        name: "cluster-ca-cert".to_string(),
+        ca_key: "ca.crt".to_string(),
+    });
+    spec.kafka_cluster.tls_secret = Some(TlsSecretRef {
+        name: "my-kafka-user".to_string(),
+        ca_key: "ca.crt".to_string(),
+        cert_key: Some("user.crt".to_string()),
+        key_key: Some("user.key".to_string()),
+    });
+
+    let backup = create_backup(spec);
+    assert!(backup::validate(&backup).is_ok());
+}
+
+#[test]
+fn backup_sasl_ssl_with_ca_secret_only_passes_validation() {
+    let mut spec = valid_backup_spec();
+    spec.kafka_cluster.security_protocol = "SASL_SSL".to_string();
+    spec.kafka_cluster.ca_secret = Some(CaSecretRef {
+        name: "cluster-ca-cert".to_string(),
+        ca_key: "ca.crt".to_string(),
+    });
+
+    let backup = create_backup(spec);
+    assert!(backup::validate(&backup).is_ok());
+}
+
+#[test]
+fn backup_plaintext_with_ca_secret_passes_validation() {
+    let mut spec = valid_backup_spec();
+    spec.kafka_cluster.security_protocol = "PLAINTEXT".to_string();
+    spec.kafka_cluster.ca_secret = Some(CaSecretRef {
+        name: "cluster-ca-cert".to_string(),
+        ca_key: "ca.crt".to_string(),
+    });
+
+    let backup = create_backup(spec);
+    assert!(backup::validate(&backup).is_ok());
 }
 
 // ============================================================================

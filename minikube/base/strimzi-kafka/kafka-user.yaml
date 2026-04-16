@@ -1,0 +1,47 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: backup-user
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: my-cluster
+spec:
+  authentication:
+    type: tls
+  authorization:
+    type: simple
+    acls:
+      # Allow reading from all topics (for backup)
+      - resource:
+          type: topic
+          name: "*"
+          patternType: literal
+        operations:
+          - Describe
+          - Read
+        host: "*"
+      # Allow writing to all topics (for restore)
+      - resource:
+          type: topic
+          name: "*"
+          patternType: literal
+        operations:
+          - Describe
+          - Write
+          - Create
+        host: "*"
+      # Allow consumer group access
+      - resource:
+          type: group
+          name: "*"
+          patternType: literal
+        operations:
+          - Describe
+          - Read
+        host: "*"
+      # Allow cluster-level operations (for metadata)
+      - resource:
+          type: cluster
+        operations:
+          - Describe
+        host: "*"

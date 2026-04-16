@@ -80,22 +80,37 @@ minikube/
 │   │   ├── clusterrole.yaml
 │   │   ├── clusterrolebinding.yaml
 │   │   └── deployment.yaml
-│   └── confluent-platform/     # Kafka + Zookeeper components
+│   ├── confluent-platform/     # Kafka + Zookeeper components
+│   │   ├── kustomization.yaml
+│   │   ├── zookeeper.yaml
+│   │   ├── kafka.yaml
+│   │   └── kafka-topic.yaml
+│   └── strimzi-kafka/          # Strimzi Kafka with TLS + KafkaUser
 │       ├── kustomization.yaml
-│       ├── zookeeper.yaml
+│       ├── namespace.yaml
 │       ├── kafka.yaml
+│       ├── kafka-user.yaml
 │       └── kafka-topic.yaml
 ├── overlays/
-│   └── test/                   # Test environment overlay
+│   ├── test/                   # CFK PLAINTEXT test
+│   │   ├── kustomization.yaml
+│   │   ├── producer.yaml
+│   │   ├── backup-pvc.yaml
+│   │   └── kafka-backup.yaml
+│   └── strimzi-tls/            # Strimzi mTLS test (split CA/client secrets)
 │       ├── kustomization.yaml
 │       ├── producer.yaml
 │       ├── backup-pvc.yaml
-│       └── kafka-backup.yaml
+│       ├── kafka-backup.yaml
+│       └── kafka-restore.yaml
 ├── scripts/
-│   ├── setup.sh               # Full environment setup
-│   ├── teardown.sh            # Environment cleanup
-│   ├── verify-backup.sh       # Backup verification
-│   └── consume-messages.sh    # View topic messages
+│   ├── setup.sh               # CFK test setup
+│   ├── teardown.sh            # CFK test cleanup
+│   ├── verify-backup.sh       # CFK backup verification
+│   ├── consume-messages.sh    # View topic messages
+│   ├── setup-strimzi-tls.sh   # Strimzi TLS test setup
+│   ├── teardown-strimzi-tls.sh # Strimzi TLS test cleanup
+│   └── verify-strimzi-tls.sh  # Strimzi TLS verification
 └── README.md
 ```
 
@@ -256,6 +271,48 @@ stringData:
 ```
 
 Then update the Kafka and KafkaBackup resources to use SASL_PLAINTEXT.
+
+## Strimzi TLS E2E Test (Split Secrets)
+
+This test validates the `caSecret` / `tlsSecret` split-secret feature with a real Strimzi cluster.
+
+### What It Tests
+
+Strimzi generates TLS certificates in separate Kubernetes secrets:
+- **`my-cluster-cluster-ca-cert`** — the cluster CA certificate (`ca.crt`)
+- **`backup-user`** — per-user client cert and key (`user.crt`, `user.key`)
+
+The test deploys a `KafkaBackup` and `KafkaRestore` that reference these as separate secrets using the `caSecret` field, validating the full produce → backup → restore flow over mTLS.
+
+### Quick Start
+
+```bash
+cd minikube
+
+# 1. Setup: Strimzi + Kafka + operator + producer + backup
+./scripts/setup-strimzi-tls.sh
+
+# 2. Verify backup is running and using split secrets
+./scripts/verify-strimzi-tls.sh
+
+# 3. Once backup completes, apply the restore
+kubectl apply -f overlays/strimzi-tls/kafka-restore.yaml
+
+# 4. Verify restore completed to 'restored-topic'
+./scripts/verify-strimzi-tls.sh
+
+# 5. Teardown
+./scripts/teardown-strimzi-tls.sh
+```
+
+### Test Flow
+
+1. Strimzi operator creates a Kafka cluster with TLS listener on port 9093
+2. Strimzi creates a `KafkaUser` (`backup-user`) with mTLS authentication and ACLs
+3. A producer writes messages to `backup-test-topic` over mTLS
+4. `KafkaBackup` resource uses split secrets (`caSecret` + `tlsSecret`) to backup the topic
+5. `KafkaRestore` restores to `restored-topic` using the same split-secret config
+6. Verification script checks message counts match between original and restored topics
 
 ## Contributing
 

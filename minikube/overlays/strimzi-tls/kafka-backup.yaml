@@ -1,0 +1,40 @@
+apiVersion: kafka.oso.sh/v1alpha1
+kind: KafkaBackup
+metadata:
+  name: backup-test-topic
+  namespace: kafka
+spec:
+  topics:
+    - backup-test-topic
+  kafkaCluster:
+    bootstrapServers:
+      - my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9093
+    securityProtocol: SSL
+    # Separate CA secret — Strimzi cluster CA
+    caSecret:
+      name: my-cluster-cluster-ca-cert
+      caKey: ca.crt
+    # Client cert/key from KafkaUser — Strimzi generates this per-user
+    tlsSecret:
+      name: backup-user
+      certKey: user.crt
+      keyKey: user.key
+  storage:
+    storageType: pvc
+    pvc:
+      claimName: kafka-backup-storage
+      subPath: backups
+  compression: zstd
+  compressionLevel: 3
+  stopAtCurrentOffsets: true
+  checkpoint:
+    enabled: true
+    intervalSecs: 30
+  rateLimiting:
+    maxConcurrentPartitions: 2
+    bytesPerSec: 0
+    recordsPerSec: 0
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 5
+    resetTimeoutSecs: 60

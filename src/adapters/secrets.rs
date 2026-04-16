@@ -142,6 +142,64 @@ pub struct TlsCredentials {
     pub client_key: Option<String>,
 }
 
+/// Fetch a CA certificate from a dedicated Kubernetes secret
+pub async fn get_ca_certificate(
+    client: &Client,
+    namespace: &str,
+    secret_name: &str,
+    ca_key: &str,
+) -> Result<String> {
+    let secret = get_secret(client, secret_name, namespace).await?;
+    get_secret_string(&secret, ca_key)
+}
+
+/// Fetch TLS credentials, optionally sourcing the CA cert from a separate secret.
+///
+/// When `ca_secret_name` / `ca_secret_key` are provided, the CA certificate is
+/// read from that secret instead of from `tls_secret_name`. This supports Strimzi
+/// deployments where the cluster CA and client certificates are in separate secrets.
+#[allow(clippy::too_many_arguments)]
+pub async fn get_tls_credentials_split(
+    client: &Client,
+    namespace: &str,
+    tls_secret_name: Option<&str>,
+    ca_key_in_tls: &str,
+    cert_key: Option<&str>,
+    key_key: Option<&str>,
+    ca_secret_name: Option<&str>,
+    ca_secret_key: Option<&str>,
+) -> Result<TlsCredentials> {
+    // Determine CA cert source: prefer dedicated CA secret, fall back to TLS secret
+    let ca_cert = if let (Some(ca_name), Some(ca_key)) = (ca_secret_name, ca_secret_key) {
+        get_ca_certificate(client, namespace, ca_name, ca_key).await?
+    } else if let Some(tls_name) = tls_secret_name {
+        let secret = get_secret(client, tls_name, namespace).await?;
+        get_secret_string(&secret, ca_key_in_tls)?
+    } else {
+        return Err(Error::Config(
+            "Either tlsSecret or caSecret must be configured for TLS".to_string(),
+        ));
+    };
+
+    // Get client cert/key from TLS secret if present
+    let (client_cert, client_key) = if let Some(tls_name) = tls_secret_name {
+        let secret = get_secret(client, tls_name, namespace).await?;
+        let cert = cert_key
+            .map(|k| get_secret_string(&secret, k))
+            .transpose()?;
+        let key = key_key.map(|k| get_secret_string(&secret, k)).transpose()?;
+        (cert, key)
+    } else {
+        (None, None)
+    };
+
+    Ok(TlsCredentials {
+        ca_cert,
+        client_cert,
+        client_key,
+    })
+}
+
 /// Fetch SASL credentials from a Kubernetes secret
 pub async fn get_sasl_credentials(
     client: &Client,
