@@ -6,7 +6,9 @@
 //! - Backup execution
 //! - Status updates
 
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -27,6 +29,27 @@ use crate::adapters::{
 use crate::crd::KafkaBackup;
 use crate::error::{Error, Result};
 use crate::metrics;
+
+/// Process-local guard recording the most recent wall-clock time at which
+/// this operator fired a scheduled backup for each `{namespace}/{name}`.
+///
+/// Purpose: the `status.lastScheduleTime` field written by `execute_backup`
+/// is the durable, cross-restart anchor, but it lives in the reflector cache
+/// and is subject to watch-stream propagation lag (observed ~30-50ms in a
+/// local minikube). For backups that complete faster than that window (e.g.
+/// incremental / no-op snapshot passes), a second reconcile can fire before
+/// the cache sees the tentative marker and re-enter `execute_backup`. This
+/// in-memory map is consulted as a strictly-narrower filter on top of the
+/// CRD-anchored decision in [`should_run_backup`] and closes that residual
+/// race without adding a direct API round-trip to every reconcile.
+fn scheduler_guard() -> &'static Mutex<HashMap<String, DateTime<Utc>>> {
+    static GUARD: OnceLock<Mutex<HashMap<String, DateTime<Utc>>>> = OnceLock::new();
+    GUARD.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn guard_key(namespace: &str, name: &str) -> String {
+    format!("{}/{}", namespace, name)
+}
 
 /// Validate the KafkaBackup spec
 pub fn validate(backup: &KafkaBackup) -> Result<()> {
@@ -206,10 +229,38 @@ pub async fn check_schedule(
 
     let now = Utc::now();
 
-    // Check if we should run now
-    let should_run = should_run_backup(backup, &schedule, now);
+    // Primary decision: CRD `status.lastScheduleTime` (survives restart).
+    let mut should_run = should_run_backup(backup, &schedule, now);
+
+    // Defence in depth: process-local guard overrides the cache-based
+    // decision when the current cron tick was already fired in-process.
+    // Required because the reflector cache can lag the `Running` status
+    // patch by tens of milliseconds — long enough for a very fast backup to
+    // complete and re-enter reconcile before the cache catches up.
+    let key = guard_key(namespace, &name);
+    if should_run {
+        if let Some(last_fired) = scheduler_guard().lock().unwrap().get(&key).copied() {
+            if schedule
+                .after(&last_fired)
+                .next()
+                .map(|next_tick| next_tick > now)
+                .unwrap_or(true)
+            {
+                debug!(
+                    name = %name,
+                    last_fired = %last_fired,
+                    "In-memory guard indicates current tick already fired; deferring"
+                );
+                should_run = false;
+            }
+        }
+    }
 
     if should_run {
+        // Record the fire BEFORE calling execute_backup so a racing
+        // reconcile triggered by our own Running patch is correctly filtered
+        // above even if it reads a stale cache.
+        scheduler_guard().lock().unwrap().insert(key, now);
         info!(name = %name, "Scheduled backup time reached, executing backup");
         return execute_backup(backup, client, namespace).await;
     }
@@ -227,39 +278,33 @@ pub async fn check_schedule(
     Ok(Action::requeue(requeue_duration))
 }
 
-/// Determine if a backup should run now
+/// Determine if a scheduled backup tick is due.
+///
+/// Uses `status.lastScheduleTime` as the monotonic anchor — this is written
+/// tentatively in the `Running` status patch before the engine runs, so it is
+/// present in the reflector cache even when a subsequent reconcile fires
+/// before the terminal `Completed`/`Failed` patch has propagated. This closes
+/// the read-your-own-writes race that caused issue #93.
+///
+/// Fallback chain for the anchor:
+/// 1. `status.lastScheduleTime` — authoritative once a tick has started.
+/// 2. `metadata.creationTimestamp` — cold-start anchor; ensures the resource
+///    does not fire immediately on creation regardless of where the clock sits
+///    inside the current cron interval.
+/// 3. `now` — safety net; returns `false` for degenerate schedules.
 fn should_run_backup(backup: &KafkaBackup, schedule: &Schedule, now: DateTime<Utc>) -> bool {
-    let last_backup = backup.status.as_ref().and_then(|s| s.last_backup_time);
+    let anchor = backup
+        .status
+        .as_ref()
+        .and_then(|s| s.last_schedule_time)
+        .or_else(|| backup.metadata.creation_timestamp.as_ref().map(|t| t.0))
+        .unwrap_or(now);
 
-    match last_backup {
-        None => true, // Never backed up
-        Some(last) => {
-            // Get the most recent scheduled time before now
-            let mut _prev_scheduled = None;
-            for scheduled in schedule.upcoming(Utc).take(10) {
-                if scheduled > now {
-                    break;
-                }
-                _prev_scheduled = Some(scheduled);
-            }
-
-            // Check using after() iterator for past times
-            if let Some(_next) = schedule.upcoming(Utc).next() {
-                // If next scheduled time is in the future, check if we missed one
-                let interval = schedule.upcoming(Utc).take(2).collect::<Vec<_>>();
-
-                if interval.len() >= 2 {
-                    let typical_interval = interval[1] - interval[0];
-                    let since_last = now - last;
-
-                    // If more than one interval has passed since last backup, run now
-                    return since_last > typical_interval;
-                }
-            }
-
-            false
-        }
-    }
+    schedule
+        .after(&anchor)
+        .next()
+        .map(|next_tick| next_tick <= now)
+        .unwrap_or(false)
 }
 
 /// Execute a backup operation
@@ -269,11 +314,16 @@ async fn execute_backup(backup: &KafkaBackup, client: &Client, namespace: &str) 
 
     info!(name = %name, "Starting backup execution");
 
-    // Update status to Running
+    // Tentative anchor: write `lastScheduleTime` BEFORE the engine runs so the
+    // reflector cache always has something to scheduler-anchor against on the
+    // next reconcile. Without this, back-to-back reconciles driven by the
+    // `Running` and `Completed` status events race the cache and re-execute
+    // the same tick (issue #93).
     let running_status = json!({
         "status": {
             "phase": "Running",
             "message": "Backup in progress",
+            "lastScheduleTime": Utc::now(),
             "observedGeneration": backup.metadata.generation,
         }
     });
@@ -603,5 +653,117 @@ fn get_storage_working_directory(storage: &ResolvedStorage) -> std::path::PathBu
         ResolvedStorage::S3(_) | ResolvedStorage::Azure(_) | ResolvedStorage::Gcs(_) => {
             std::path::PathBuf::from("/tmp")
         }
+    }
+}
+
+#[cfg(test)]
+mod should_run_backup_tests {
+    use super::*;
+    use crate::crd::{KafkaBackup, KafkaBackupStatus};
+    use chrono::TimeZone;
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
+    use serde_json::json;
+
+    fn make_backup(creation: DateTime<Utc>, status: Option<KafkaBackupStatus>) -> KafkaBackup {
+        let spec = serde_json::from_value(json!({
+            "kafkaCluster": {"bootstrapServers": ["localhost:9092"]},
+            "topics": ["t"],
+            "storage": {
+                "storageType": "pvc",
+                "pvc": {"claimName": "c"}
+            },
+        }))
+        .unwrap();
+        let mut b = KafkaBackup::new("test", spec);
+        b.metadata.creation_timestamp = Some(Time(creation));
+        b.status = status;
+        b
+    }
+
+    fn every_ten_seconds() -> Schedule {
+        // cron crate 0.12 expects 7 fields: sec min hour dom month dow year
+        Schedule::from_str("*/10 * * * * * *").unwrap()
+    }
+
+    fn at(h: u32, m: u32, s: u32) -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 4, 21, h, m, s).unwrap()
+    }
+
+    /// Cold start, creation timestamp well before now → a tick has elapsed
+    /// between creation and now, so backup fires.
+    #[test]
+    fn cold_start_past_first_tick_fires() {
+        let creation = at(10, 0, 0);
+        let now = at(10, 0, 30);
+        let backup = make_backup(creation, None);
+        assert!(should_run_backup(&backup, &every_ten_seconds(), now));
+    }
+
+    /// Cold start inside the first interval (less than one cron interval has
+    /// elapsed since creation) → not due yet.
+    #[test]
+    fn cold_start_inside_first_interval_skips() {
+        let creation = at(10, 0, 1); // 1 second past the :00 tick
+        let now = at(10, 0, 5); // still before the :10 tick
+        let backup = make_backup(creation, None);
+        assert!(!should_run_backup(&backup, &every_ten_seconds(), now));
+    }
+
+    /// A scheduled tick has passed since lastScheduleTime → fires.
+    #[test]
+    fn overdue_tick_fires() {
+        let now = at(10, 0, 25);
+        let status = KafkaBackupStatus {
+            last_schedule_time: Some(at(10, 0, 14)), // next tick after is :20
+            ..Default::default()
+        };
+        let backup = make_backup(at(9, 0, 0), Some(status));
+        assert!(should_run_backup(&backup, &every_ten_seconds(), now));
+    }
+
+    /// Mid-interval between ticks → does not fire. Regression guard for the
+    /// strict `>` inequality (bug 2 in issue #93).
+    #[test]
+    fn mid_interval_does_not_fire() {
+        let now = at(10, 0, 23);
+        let status = KafkaBackupStatus {
+            last_schedule_time: Some(at(10, 0, 20)), // next tick after is :30, still in the future
+            ..Default::default()
+        };
+        let backup = make_backup(at(9, 0, 0), Some(status));
+        assert!(!should_run_backup(&backup, &every_ten_seconds(), now));
+    }
+
+    /// Reflector-cache race: a second reconcile fires immediately after the
+    /// first one wrote `Running(lastScheduleTime=now)`; the cache has the
+    /// tentative anchor but not yet the `Completed` patch. Must NOT re-fire.
+    /// Regression guard for bug 1 in issue #93 (the reported symptom).
+    #[test]
+    fn cache_lag_after_running_patch_does_not_double_fire() {
+        let now = at(10, 0, 20);
+        let status = KafkaBackupStatus {
+            phase: Some("Running".into()),
+            last_schedule_time: Some(at(10, 0, 20)), // just written by predecessor reconcile
+            last_backup_time: None,                  // Completed patch not yet absorbed
+            ..Default::default()
+        };
+        let backup = make_backup(at(9, 0, 0), Some(status));
+        assert!(!should_run_backup(&backup, &every_ten_seconds(), now));
+    }
+
+    /// `Failed` phase mid-interval: merge-patch preserved `lastScheduleTime`,
+    /// so the next reconcile triggered by the Failed status patch must skip
+    /// until the next scheduled tick. Regression guard for bug 3 in issue #93
+    /// (the Failed→reconcile→re-execute CPU loop).
+    #[test]
+    fn failed_phase_mid_interval_does_not_retry_immediately() {
+        let now = at(10, 0, 22);
+        let status = KafkaBackupStatus {
+            phase: Some("Failed".into()),
+            last_schedule_time: Some(at(10, 0, 20)), // next tick after is :30
+            ..Default::default()
+        };
+        let backup = make_backup(at(9, 0, 0), Some(status));
+        assert!(!should_run_backup(&backup, &every_ten_seconds(), now));
     }
 }

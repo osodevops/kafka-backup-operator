@@ -582,6 +582,11 @@ spec:
                 format: date-time
                 nullable: true
                 type: string
+              lastScheduleTime:
+                description: Authoritative timestamp of the most recent scheduled tick the operator has begun processing. Modelled on Kubernetes CronJob's `.status.lastScheduleTime`. Used as the monotonic anchor in `should_run_backup` so scheduling is immune to reflector-cache lag between a tick's `Running` patch and its `Completed` patch.
+                format: date-time
+                nullable: true
+                type: string
               message:
                 description: Human-readable message
                 nullable: true

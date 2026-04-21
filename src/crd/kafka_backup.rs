@@ -674,6 +674,14 @@ pub struct KafkaBackupStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_backup_time: Option<DateTime<Utc>>,
 
+    /// Authoritative timestamp of the most recent scheduled tick the operator
+    /// has begun processing. Modelled on Kubernetes CronJob's
+    /// `.status.lastScheduleTime`. Used as the monotonic anchor in
+    /// `should_run_backup` so scheduling is immune to reflector-cache lag
+    /// between a tick's `Running` patch and its `Completed` patch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_schedule_time: Option<DateTime<Utc>>,
+
     /// Next scheduled backup timestamp
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_scheduled_backup: Option<DateTime<Utc>>,
