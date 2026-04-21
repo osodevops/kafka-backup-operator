@@ -1,0 +1,122 @@
+name: Release Tagger
+
+permissions:
+  actions: write
+  contents: write
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/**'
+      - 'Dockerfile'
+      - 'deploy/helm/kafka-backup-operator/**'
+
+jobs:
+  tag-release:
+    name: Tag release version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Validate release version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE_REF="${{ github.event.before }}"
+          if [[ "$BASE_REF" =~ ^0+$ ]]; then
+            BASE_REF="$(git rev-list --max-parents=0 HEAD | head -n1)"
+          fi
+
+          python3 scripts/ci/check-release-version.py \
+            --base-ref "$BASE_REF" \
+            --mode tagger \
+            --event-name "${{ github.event_name }}"
+
+      - name: Create or verify release tag
+        if: ${{ env.VERSION_CHANGED == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git rev-parse --verify --quiet "refs/tags/${RELEASE_TAG}" > /dev/null; then
+            TAG_COMMIT="$(git rev-list -n 1 "${RELEASE_TAG}")"
+            if [[ "$TAG_COMMIT" == "${GITHUB_SHA}" ]]; then
+              echo "${RELEASE_TAG} already points at ${GITHUB_SHA}; continuing to release dispatch."
+            else
+              echo "::error::${RELEASE_TAG} already exists at ${TAG_COMMIT}; refusing to retag ${GITHUB_SHA}."
+              exit 1
+            fi
+          else
+            git tag "${RELEASE_TAG}" "${GITHUB_SHA}"
+            git push origin "refs/tags/${RELEASE_TAG}"
+          fi
+
+      - name: Dispatch release workflow
+        if: ${{ env.VERSION_CHANGED == 'true' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Tag pushes created by a workflow are not a reliable trigger for a second workflow.
+          # Dispatch the Release workflow explicitly and fail if the run never appears.
+
+          TAG_COMMIT="$(git rev-list -n 1 "${RELEASE_TAG}")"
+          if [[ "$TAG_COMMIT" != "${GITHUB_SHA}" ]]; then
+            echo "::error::${RELEASE_TAG} points at ${TAG_COMMIT}; expected ${GITHUB_SHA}."
+            exit 1
+          fi
+
+          if gh release view "${RELEASE_TAG}" > /dev/null 2>&1; then
+            echo "${RELEASE_TAG} already has a GitHub Release; no dispatch needed."
+            exit 0
+          fi
+
+          existing_run="$(
+            gh run list \
+              --workflow release.yaml \
+              --event workflow_dispatch \
+              --commit "${GITHUB_SHA}" \
+              --limit 50 \
+              --json status,url \
+              --jq '.[] | select(.status != "completed") | .url' \
+              | head -n 1
+          )"
+          if [[ -n "$existing_run" ]]; then
+            echo "Release workflow is already running for ${RELEASE_TAG}: ${existing_run}"
+            exit 0
+          fi
+
+          dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh workflow run release.yaml --ref "${RELEASE_TAG}"
+
+          for attempt in {1..30}; do
+            run_url="$(
+              gh run list \
+                --workflow release.yaml \
+                --event workflow_dispatch \
+                --commit "${GITHUB_SHA}" \
+                --limit 50 \
+                --json createdAt,url \
+                --jq ".[] | select(.createdAt >= \"${dispatch_started_at}\") | .url" \
+                | head -n 1
+            )"
+
+            if [[ -n "$run_url" ]]; then
+              echo "Release workflow dispatched for ${RELEASE_TAG}: ${run_url}"
+              exit 0
+            fi
+
+            sleep 5
+          done
+
+          echo "::error::Release workflow dispatch for ${RELEASE_TAG} did not appear in GitHub Actions."
+          exit 1
