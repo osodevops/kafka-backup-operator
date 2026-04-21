@@ -351,32 +351,24 @@ async fn execute_validation_internal(
         .map(|k| k.bootstrap_servers.clone())
         .unwrap_or_default();
 
-    let kafka_client = if !target_bootstrap_servers.is_empty() {
-        let kafka_config = resolved_config
-            .kafka
-            .as_ref()
-            .map(crate::adapters::to_core_kafka_config_for_validation)
-            .unwrap();
-        let kc = kafka_backup_core::kafka::KafkaClient::new(kafka_config);
-        kc.connect()
-            .await
-            .map_err(|e| Error::Core(format!("Failed to connect to Kafka: {}", e)))?;
-        kc
-    } else {
-        // No Kafka cluster configured; create a dummy client
-        let kafka_config = kafka_backup_core::config::KafkaConfig {
-            bootstrap_servers: vec!["localhost:9092".to_string()],
-            security: kafka_backup_core::config::SecurityConfig::default(),
-            topics: kafka_backup_core::config::TopicSelection::default(),
-            connection: kafka_backup_core::config::ConnectionConfig::default(),
-        };
-        kafka_backup_core::kafka::KafkaClient::new(kafka_config)
-    };
+    if target_bootstrap_servers.is_empty() {
+        return Err(Error::validation(
+            "Validation requires a target Kafka cluster; spec.kafka.bootstrapServers must be set",
+        ));
+    }
+    let kafka_config = resolved_config
+        .kafka
+        .as_ref()
+        .map(crate::adapters::to_core_kafka_config_for_validation)
+        .unwrap();
+    let target_router = kafka_backup_core::kafka::PartitionLeaderRouter::new(kafka_config)
+        .await
+        .map_err(|e| Error::Core(format!("Failed to connect to target Kafka cluster: {}", e)))?;
 
     let ctx = kafka_backup_core::validation::ValidationContext {
         backup_id: backup_id.clone(),
         backup_manifest: manifest,
-        target_client: std::sync::Arc::new(kafka_client),
+        target_client: std::sync::Arc::new(target_router),
         storage: storage_backend,
         pitr_timestamp: None,
         http_client: reqwest::Client::new(),
