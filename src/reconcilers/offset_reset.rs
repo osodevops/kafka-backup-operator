@@ -45,26 +45,20 @@ pub fn validate(reset: &KafkaOffsetReset) -> Result<()> {
 
     // Validate strategy-specific requirements
     match &reset.spec.reset_strategy {
-        OffsetResetStrategy::ToTimestamp => {
-            if reset.spec.reset_timestamp.is_none() {
-                return Err(Error::validation(
-                    "reset_timestamp is required when using to-timestamp strategy",
-                ));
-            }
+        OffsetResetStrategy::ToTimestamp if reset.spec.reset_timestamp.is_none() => {
+            return Err(Error::validation(
+                "reset_timestamp is required when using to-timestamp strategy",
+            ));
         }
-        OffsetResetStrategy::ToOffset => {
-            if reset.spec.reset_offset.is_none() {
-                return Err(Error::validation(
-                    "reset_offset is required when using to-offset strategy",
-                ));
-            }
+        OffsetResetStrategy::ToOffset if reset.spec.reset_offset.is_none() => {
+            return Err(Error::validation(
+                "reset_offset is required when using to-offset strategy",
+            ));
         }
-        OffsetResetStrategy::FromMapping => {
-            if reset.spec.offset_mapping_ref.is_none() {
-                return Err(Error::validation(
-                    "offset_mapping_ref is required when using from-mapping strategy",
-                ));
-            }
+        OffsetResetStrategy::FromMapping if reset.spec.offset_mapping_ref.is_none() => {
+            return Err(Error::validation(
+                "offset_mapping_ref is required when using from-mapping strategy",
+            ));
         }
         _ => {}
     }
