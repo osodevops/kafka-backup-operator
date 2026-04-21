@@ -2,8 +2,8 @@ apiVersion: v2
 name: kafka-backup-operator
 description: A Kubernetes operator for managing Kafka backup and restore operations
 type: application
-version: 1.0.1
-appVersion: "1.0.1"
+version: 1.0.2
+appVersion: "1.0.2"
 home: https://github.com/osodevops/kafka-backup-operator
 sources:
   - https://github.com/osodevops/kafka-backup-operator
