@@ -83,7 +83,8 @@ pub struct KafkaRestoreSpec {
     #[serde(default = "default_produce_timeout_ms")]
     pub produce_timeout_ms: i32,
 
-    /// Purge target topics before restore using Kafka DeleteRecords
+    /// Purge target topics before restore using Kafka DeleteRecords.
+    /// Required for restore-all or explicit same-topic restores.
     #[serde(default)]
     pub purge_topics: bool,
 

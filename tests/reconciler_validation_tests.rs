@@ -438,7 +438,7 @@ fn valid_restore_spec() -> KafkaRestoreSpec {
         produce_batch_size: 1000,
         produce_acks: -1,
         produce_timeout_ms: 30_000,
-        purge_topics: false,
+        purge_topics: true,
         auto_consumer_groups: false,
         create_topics: false,
         default_replication_factor: None,
@@ -594,7 +594,7 @@ fn restore_pitr_with_only_end_timestamp_passes_validation() {
 }
 
 #[test]
-fn restore_empty_topics_allowed_for_restore_all() {
+fn restore_empty_topics_with_purge_allowed_for_restore_all() {
     let mut spec = valid_restore_spec();
     spec.topics = vec![]; // Means "restore all"
 
@@ -603,9 +603,10 @@ fn restore_empty_topics_allowed_for_restore_all() {
 }
 
 #[test]
-fn restore_specific_topics_passes_validation() {
+fn restore_specific_topics_with_purge_passes_validation() {
     let mut spec = valid_restore_spec();
     spec.topics = vec!["topic-a".to_string(), "topic-b".to_string()];
+    spec.purge_topics = true;
 
     let restore = create_restore(spec);
     assert!(restore::validate(&restore).is_ok());

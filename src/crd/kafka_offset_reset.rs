@@ -76,7 +76,7 @@ fn default_true() -> bool {
 }
 
 /// Offset reset strategy
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum OffsetResetStrategy {
     /// Reset to earliest offset

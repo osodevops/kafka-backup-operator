@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use kafka_backup_core::restore::engine::RestoreEngine;
+use kafka_backup_core::restore::ThreePhaseRestore;
 use kube::{
     api::{Patch, PatchParams},
     runtime::controller::Action,
@@ -74,6 +75,8 @@ pub fn validate(restore: &KafkaRestore) -> Result<()> {
         return Err(Error::validation("produceTimeoutMs must be greater than 0"));
     }
 
+    validate_restore_target_safety(restore)?;
+
     for (topic, repartitioning) in &restore.spec.repartitioning {
         if repartitioning.target_partitions <= 0 {
             return Err(Error::validation(format!(
@@ -113,6 +116,50 @@ pub fn validate(restore: &KafkaRestore) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn validate_restore_target_safety(restore: &KafkaRestore) -> Result<()> {
+    if restore.spec.dry_run || restore.spec.purge_topics {
+        return Ok(());
+    }
+
+    if restore.spec.topics.is_empty() {
+        return Err(Error::validation(
+            "KafkaRestore with spec.topics empty restores all backup topics to their original names without purgeTopics. \
+             Set spec.purgeTopics=true to replace visible records in-place, or set spec.topics with spec.topicMapping \
+             to restore into different target topics.",
+        ));
+    }
+
+    let mut same_target_topics: Vec<&str> = restore
+        .spec
+        .topics
+        .iter()
+        .filter_map(|topic| {
+            let target = restore
+                .spec
+                .topic_mapping
+                .get(topic)
+                .map(String::as_str)
+                .unwrap_or(topic);
+
+            (target == topic).then_some(topic.as_str())
+        })
+        .collect();
+
+    if same_target_topics.is_empty() {
+        return Ok(());
+    }
+
+    same_target_topics.sort_unstable();
+    same_target_topics.dedup();
+
+    Err(Error::validation(format!(
+        "KafkaRestore would append records to existing topic name(s) without purgeTopics: {}. \
+         Set spec.purgeTopics=true to replace visible records in-place, or set spec.topicMapping \
+         to restore into different target topics.",
+        same_target_topics.join(", ")
+    )))
 }
 
 /// Monitor restore progress
@@ -167,7 +214,8 @@ pub async fn execute(restore: &KafkaRestore, client: &Client, namespace: &str) -
         }
     }
 
-    // Execute restore
+    // Execute restore. Offset reset, when requested, is handled inside
+    // execute_restore_internal so the final status reflects the full workflow.
     let restore_result = execute_restore_internal(restore, client, namespace).await;
 
     match restore_result {
@@ -210,11 +258,10 @@ pub async fn execute(restore: &KafkaRestore, client: &Client, namespace: &str) -
             )
             .await?;
 
-            // Execute offset reset if configured
+            // Offset reset is handled during restore execution when configured.
             if let Some(offset_reset) = &restore.spec.offset_reset {
                 if offset_reset.enabled {
-                    info!(name = %name, "Executing post-restore offset reset");
-                    // TODO: Create KafkaOffsetReset resource or execute directly
+                    info!(name = %name, "Post-restore offset reset completed with restore workflow");
                 }
             }
 
@@ -343,32 +390,59 @@ async fn execute_restore_internal(
         to_core_restore_config(&resolved_config, &backup_id, &storage, tls_manager.as_ref())
             .map_err(|e| Error::Core(format!("Failed to build core config: {}", e)))?;
 
-    // 4. Create the restore engine (sync constructor)
-    let engine = RestoreEngine::new(core_config)
-        .map_err(|e| Error::Core(format!("Failed to create restore engine: {}", e)))?;
+    let offset_mapping_path = core_config
+        .restore
+        .as_ref()
+        .and_then(|restore| restore.offset_report.clone())
+        .map(|path| path.display().to_string());
 
-    // 5. Get progress receiver for monitoring
-    let mut progress_rx = engine.progress_receiver();
-
-    // Spawn progress monitoring task
-    let name_clone = name.clone();
-    tokio::spawn(async move {
-        while let Ok(progress) = progress_rx.recv().await {
-            info!(
-                name = %name_clone,
-                records = progress.records_restored,
-                percentage = progress.percentage,
-                throughput = progress.throughput_records_per_sec,
-                "Restore progress"
-            );
+    if let Some(path) = offset_mapping_path.as_deref() {
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            tokio::fs::create_dir_all(parent).await?;
         }
-    });
+    }
 
-    // 6. Run the restore
-    let report = engine
-        .run()
-        .await
-        .map_err(|e| Error::Core(format!("Restore execution failed: {}", e)))?;
+    let run_three_phase = core_config
+        .restore
+        .as_ref()
+        .is_some_and(|restore| restore.reset_consumer_offsets || restore.auto_consumer_groups);
+
+    let report = if run_three_phase {
+        let orchestrator = ThreePhaseRestore::new(core_config)
+            .map_err(|e| Error::Core(format!("Failed to create restore orchestrator: {}", e)))?;
+        let three_phase_report = orchestrator
+            .run_all_phases()
+            .await
+            .map_err(|e| Error::Core(format!("Three-phase restore execution failed: {}", e)))?;
+        three_phase_report.restore_report
+    } else {
+        // 4. Create the restore engine (sync constructor)
+        let engine = RestoreEngine::new(core_config)
+            .map_err(|e| Error::Core(format!("Failed to create restore engine: {}", e)))?;
+
+        // 5. Get progress receiver for monitoring
+        let mut progress_rx = engine.progress_receiver();
+
+        // Spawn progress monitoring task
+        let name_clone = name.clone();
+        tokio::spawn(async move {
+            while let Ok(progress) = progress_rx.recv().await {
+                info!(
+                    name = %name_clone,
+                    records = progress.records_restored,
+                    percentage = progress.percentage,
+                    throughput = progress.throughput_records_per_sec,
+                    "Restore progress"
+                );
+            }
+        });
+
+        // 6. Run the restore
+        engine
+            .run()
+            .await
+            .map_err(|e| Error::Core(format!("Restore execution failed: {}", e)))?
+    };
 
     info!(
         name = %name,
@@ -382,7 +456,7 @@ async fn execute_restore_internal(
         records_restored: report.records_restored,
         bytes_restored: report.bytes_restored,
         segments_processed: report.segments_processed,
-        offset_mapping_path: None, // Offset mapping stored in report.offset_mapping
+        offset_mapping_path,
     })
 }
 

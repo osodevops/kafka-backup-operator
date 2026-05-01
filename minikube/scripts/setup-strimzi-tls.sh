@@ -54,6 +54,7 @@ echo "Step 4: Installing Kafka Backup Operator via Helm..."
 echo "-----------------------------------------------------"
 helm upgrade --install kafka-backup-operator "$REPO_ROOT/deploy/helm/kafka-backup-operator" \
     --namespace kafka \
+    --set image.tag=latest \
     --set image.pullPolicy=Never \
     --set securityContext.readOnlyRootFilesystem=false \
     --set extraVolumes[0].name=backup-storage \

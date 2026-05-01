@@ -197,6 +197,8 @@ spec:
   produceAcks: -1
   produceTimeoutMs: 30000
   autoConsumerGroups: true
+  # Required when restoring all topics or explicit topics back to the same names.
+  # Keep false when using topicMapping to restore into separate target topics.
   purgeTopics: false
   # Safety: Create snapshot before restore
   rollback:
