@@ -6,7 +6,9 @@ use std::collections::HashMap;
 
 use kube::Client;
 
-use crate::crd::{BackupRef, KafkaRestore, PitrSpec, RollbackSpec, TopicRepartitioningSpec};
+use crate::crd::{
+    BackupRef, KafkaRestore, OffsetResetSpec, PitrSpec, RollbackSpec, TopicRepartitioningSpec,
+};
 use crate::error::Result;
 
 use super::backup_config::{
@@ -50,6 +52,8 @@ pub struct ResolvedRestoreConfig {
     pub purge_topics: bool,
     /// Load consumer groups from backup snapshot
     pub auto_consumer_groups: bool,
+    /// Post-restore consumer offset reset configuration
+    pub offset_reset: Option<ResolvedOffsetResetConfig>,
     /// Create missing topics during restore
     pub create_topics: bool,
     /// Default replication factor for auto-created topics
@@ -95,6 +99,14 @@ pub struct ResolvedRollbackConfig {
 pub struct ResolvedTopicRepartitioningConfig {
     pub strategy: String,
     pub target_partitions: i32,
+}
+
+/// Resolved post-restore offset reset configuration
+#[derive(Debug, Clone)]
+pub struct ResolvedOffsetResetConfig {
+    pub enabled: bool,
+    pub consumer_groups: Vec<String>,
+    pub strategy: String,
 }
 
 /// Build fully resolved restore configuration from CRD
@@ -164,6 +176,11 @@ pub async fn build_restore_config(
         produce_timeout_ms: restore.spec.produce_timeout_ms,
         purge_topics: restore.spec.purge_topics,
         auto_consumer_groups: restore.spec.auto_consumer_groups,
+        offset_reset: restore
+            .spec
+            .offset_reset
+            .as_ref()
+            .map(build_offset_reset_config),
         create_topics: restore.spec.create_topics,
         default_replication_factor: restore.spec.default_replication_factor,
     })
@@ -236,5 +253,13 @@ fn build_repartitioning_config(
     ResolvedTopicRepartitioningConfig {
         strategy: repartitioning.strategy.clone(),
         target_partitions: repartitioning.target_partitions,
+    }
+}
+
+fn build_offset_reset_config(offset_reset: &OffsetResetSpec) -> ResolvedOffsetResetConfig {
+    ResolvedOffsetResetConfig {
+        enabled: offset_reset.enabled,
+        consumer_groups: offset_reset.consumer_groups.clone(),
+        strategy: offset_reset.strategy.clone(),
     }
 }

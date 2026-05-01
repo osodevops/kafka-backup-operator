@@ -396,6 +396,10 @@ fn build_core_security_config(
         ssl_ca_location,
         ssl_certificate_location,
         ssl_key_location,
+        sasl_kerberos_service_name: None,
+        sasl_keytab_path: None,
+        sasl_krb5_config_path: None,
+        sasl_mechanism_plugin_factory: None,
     }
 }
 

@@ -1117,7 +1117,7 @@ spec:
                 type: integer
               purgeTopics:
                 default: false
-                description: Purge target topics before restore using Kafka DeleteRecords
+                description: Purge target topics before restore using Kafka DeleteRecords. Required for restore-all or explicit same-topic restores.
                 type: boolean
               rateLimiting:
                 description: Rate limiting configuration

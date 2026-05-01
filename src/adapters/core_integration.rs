@@ -69,7 +69,8 @@ pub fn to_core_restore_config(
     let kafka_config =
         to_core_kafka_config_with_tls(&resolved.kafka, &resolved.topics, tls_manager);
     let storage_config = to_core_storage_config(storage);
-    let restore_options = to_core_restore_options(resolved);
+    let mut restore_options = to_core_restore_options(resolved);
+    restore_options.offset_report = restore_offset_report_path(resolved, backup_id, storage);
 
     let config = Config {
         mode: Mode::Restore,
@@ -85,6 +86,35 @@ pub fn to_core_restore_config(
 
     config.validate()?;
     Ok(config)
+}
+
+/// Return true when a restore should collect an offset mapping report.
+pub fn restore_needs_offset_report(resolved: &ResolvedRestoreConfig) -> bool {
+    resolved.auto_consumer_groups
+        || resolved
+            .offset_reset
+            .as_ref()
+            .is_some_and(|offset_reset| offset_reset.enabled)
+}
+
+/// Default local path for the restore offset mapping report.
+pub fn restore_offset_report_path(
+    resolved: &ResolvedRestoreConfig,
+    backup_id: &str,
+    storage: &ResolvedStorage,
+) -> Option<PathBuf> {
+    if !restore_needs_offset_report(resolved) {
+        return None;
+    }
+
+    let base_path = match storage {
+        ResolvedStorage::Local(local) => PathBuf::from(&local.path),
+        ResolvedStorage::S3(_) | ResolvedStorage::Azure(_) | ResolvedStorage::Gcs(_) => {
+            PathBuf::from("/tmp/kafka-backup-operator")
+        }
+    };
+
+    Some(base_path.join(backup_id).join("offset-mapping.json"))
 }
 
 /// Convert resolved Kafka configuration to kafka-backup-core KafkaConfig
@@ -169,6 +199,10 @@ pub fn to_core_security_config_with_tls(
         ssl_ca_location,
         ssl_certificate_location,
         ssl_key_location,
+        sasl_kerberos_service_name: None,
+        sasl_keytab_path: None,
+        sasl_krb5_config_path: None,
+        sasl_mechanism_plugin_factory: None,
     }
 }
 
@@ -313,7 +347,36 @@ fn to_core_backup_options(resolved: &ResolvedBackupConfig) -> BackupOptions {
 
 /// Convert restore options
 fn to_core_restore_options(resolved: &ResolvedRestoreConfig) -> RestoreOptions {
-    let consumer_group_strategy = if resolved.rollback.is_some() {
+    let reset_strategy = resolved
+        .offset_reset
+        .as_ref()
+        .map(|offset_reset| offset_reset.strategy.to_lowercase());
+    let reset_enabled = resolved
+        .offset_reset
+        .as_ref()
+        .is_some_and(|offset_reset| offset_reset.enabled);
+    let reset_consumer_offsets = reset_enabled
+        && !matches!(
+            reset_strategy.as_deref(),
+            Some("manual") | Some("dry-run") | Some("dry_run")
+        );
+    let consumer_groups = resolved
+        .offset_reset
+        .as_ref()
+        .filter(|offset_reset| offset_reset.enabled)
+        .map(|offset_reset| offset_reset.consumer_groups.clone())
+        .unwrap_or_default();
+
+    let consumer_group_strategy = if reset_enabled || resolved.auto_consumer_groups {
+        match reset_strategy.as_deref() {
+            Some("manual") => OffsetStrategy::Manual,
+            Some("timestamp") | Some("timestamp-based") | Some("timestamp_based") => {
+                OffsetStrategy::TimestampBased
+            }
+            Some("cluster-scan") | Some("cluster_scan") => OffsetStrategy::ClusterScan,
+            _ => OffsetStrategy::HeaderBased,
+        }
+    } else if resolved.rollback.is_some() {
         OffsetStrategy::HeaderBased
     } else {
         OffsetStrategy::Skip
@@ -377,8 +440,8 @@ fn to_core_restore_options(resolved: &ResolvedRestoreConfig) -> RestoreOptions {
         produce_timeout_ms: resolved.produce_timeout_ms,
         checkpoint_state: None,
         checkpoint_interval_secs: 60,
-        consumer_groups: vec![],
-        reset_consumer_offsets: false,
+        consumer_groups,
+        reset_consumer_offsets,
         offset_report: None,
         create_topics: resolved.create_topics,
         default_replication_factor: resolved.default_replication_factor,
