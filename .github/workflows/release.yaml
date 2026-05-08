@@ -31,7 +31,7 @@ jobs:
         id: version
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Release version: $VERSION"
 
       - name: Verify Cargo.toml version matches tag
@@ -135,12 +135,20 @@ jobs:
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Verify published multi-arch manifest
+        run: |
+          IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.version }}"
+          docker buildx imagetools inspect "$IMAGE_REF" | tee manifest.txt
+          grep -q 'Platform:.*linux/amd64' manifest.txt
+          grep -q 'Platform:.*linux/arm64' manifest.txt
+          echo "Published multi-arch manifest includes linux/amd64 and linux/arm64"
 
   create-release:
     name: Create GitHub Release
@@ -178,37 +186,47 @@ jobs:
 
           # Generate changelog grouped by conventional commit type
           echo "## What's Changed" > changelog.md
-          echo "" >> changelog.md
 
           FEATURES=$(git log "${PREV_TAG}..${TAG}" --oneline --grep="^feat" --format="* %s" 2>/dev/null | head -20)
           if [ -n "$FEATURES" ]; then
-            echo "### Features" >> changelog.md
-            echo "$FEATURES" >> changelog.md
-            echo "" >> changelog.md
+            {
+              echo ""
+              echo "### Features"
+              echo "$FEATURES"
+            } >> changelog.md
           fi
 
           FIXES=$(git log "${PREV_TAG}..${TAG}" --oneline --grep="^fix" --format="* %s" 2>/dev/null | head -20)
           if [ -n "$FIXES" ]; then
-            echo "### Fixes" >> changelog.md
-            echo "$FIXES" >> changelog.md
-            echo "" >> changelog.md
+            {
+              echo ""
+              echo "### Fixes"
+              echo "$FIXES"
+            } >> changelog.md
           fi
 
           DEPS=$(git log "${PREV_TAG}..${TAG}" --oneline --grep="^deps\|^dep\|^chore(deps)\|Bump" --format="* %s" 2>/dev/null | head -20)
           if [ -n "$DEPS" ]; then
-            echo "### Dependencies" >> changelog.md
-            echo "$DEPS" >> changelog.md
-            echo "" >> changelog.md
+            {
+              echo ""
+              echo "### Dependencies"
+              echo "$DEPS"
+            } >> changelog.md
           fi
 
           OTHER=$(git log "${PREV_TAG}..${TAG}" --oneline --grep="^ci\|^chore\|^style\|^refactor" --format="* %s" 2>/dev/null | head -20)
           if [ -n "$OTHER" ]; then
-            echo "### Other" >> changelog.md
-            echo "$OTHER" >> changelog.md
-            echo "" >> changelog.md
+            {
+              echo ""
+              echo "### Other"
+              echo "$OTHER"
+            } >> changelog.md
           fi
 
-          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}" >> changelog.md
+          {
+            echo ""
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}"
+          } >> changelog.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v2
