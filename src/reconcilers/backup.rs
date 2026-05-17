@@ -214,10 +214,8 @@ pub async fn check_schedule(
 
     // If no schedule, this is a one-shot backup - check if already completed
     let Some(schedule_str) = &backup.spec.schedule else {
-        if let Some(status) = &backup.status {
-            if status.phase.as_deref() == Some("Completed") {
-                return Ok(Action::await_change());
-            }
+        if !should_execute_one_shot_backup(backup) {
+            return Ok(Action::await_change());
         }
         // One-shot backup that hasn't run - execute now
         return execute_backup(backup, client, namespace).await;
@@ -276,6 +274,16 @@ pub async fn check_schedule(
     let requeue_duration = duration_until_next.min(Duration::from_secs(300)); // Max 5 minutes
 
     Ok(Action::requeue(requeue_duration))
+}
+
+fn should_execute_one_shot_backup(backup: &KafkaBackup) -> bool {
+    !matches!(
+        backup
+            .status
+            .as_ref()
+            .and_then(|status| status.phase.as_deref()),
+        Some("Running" | "Completed" | "Failed")
+    )
 }
 
 /// Determine if a scheduled backup tick is due.
@@ -765,5 +773,34 @@ mod should_run_backup_tests {
         };
         let backup = make_backup(at(9, 0, 0), Some(status));
         assert!(!should_run_backup(&backup, &every_ten_seconds(), now));
+    }
+
+    #[test]
+    fn one_shot_running_completed_and_failed_do_not_execute_again() {
+        for phase in ["Running", "Completed", "Failed"] {
+            let status = KafkaBackupStatus {
+                phase: Some(phase.into()),
+                ..Default::default()
+            };
+            let backup = make_backup(at(9, 0, 0), Some(status));
+
+            assert!(
+                !should_execute_one_shot_backup(&backup),
+                "one-shot backup in phase {phase} must not re-execute"
+            );
+        }
+    }
+
+    #[test]
+    fn one_shot_without_terminal_or_running_phase_executes() {
+        let backup_without_status = make_backup(at(9, 0, 0), None);
+        assert!(should_execute_one_shot_backup(&backup_without_status));
+
+        let pending_status = KafkaBackupStatus {
+            phase: Some("Pending".into()),
+            ..Default::default()
+        };
+        let pending_backup = make_backup(at(9, 0, 0), Some(pending_status));
+        assert!(should_execute_one_shot_backup(&pending_backup));
     }
 }
