@@ -8,7 +8,7 @@ A Kubernetes operator for automated Kafka backup and disaster recovery. Built wi
 
 ## Features
 
-- **Scheduled Backups** - Cron-based automatic backups with configurable retention
+- **Scheduled Backups** - Cron-based automatic backups for point-in-time backup runs
 - **Point-in-Time Recovery (PITR)** - Restore data to any specific timestamp
 - **Multi-Cloud Storage** - Support for PVC, S3, Azure Blob Storage, and GCS
 - **Azure Workload Identity** - Secure, secretless authentication for Azure
@@ -166,6 +166,20 @@ spec:
         secretAccessKeyKey: AWS_SECRET_ACCESS_KEY
   schedule: "0 0 */4 * * * *"
 ```
+
+## Backup Retention
+
+`KafkaBackup` does not currently manage backup data retention or automatically delete old backup segments, manifests, offset stores, or consumer group snapshots.
+
+For scheduled point-in-time backups, each run writes a new backup ID. For continuous backups (`continuous: true`), the backup process keeps writing new segment objects as Kafka records are produced. In both modes, stored backup data remains in the configured backend until it is removed outside the operator.
+
+Recommended retention approaches today:
+
+- Use object storage lifecycle policies for S3, S3-compatible storage, Azure Blob Storage, or GCS. Scope lifecycle rules to the backup bucket/container prefix used by the `KafkaBackup`.
+- For PVC storage, use an external cleanup process such as a Kubernetes `CronJob` that mounts the same PVC and removes old backup files. Kubernetes PV reclaim policies only apply when the PVC is released; they do not clean up old files within an active volume.
+- Keep retention windows aligned with restore requirements. Deleting old segment objects can make older point-in-time restores unavailable.
+
+The `retentionDays` field belongs to `KafkaBackupValidation` evidence retention and does not control `KafkaBackup` data retention.
 
 ### Restore from Backup
 
