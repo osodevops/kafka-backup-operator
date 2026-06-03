@@ -5,6 +5,8 @@
 **Version:** 1.0  
 **Scope:** Lightweight Kubernetes Operator for managing OSO Kafka Backup (OSS & Enterprise)
 
+> Note: This is an early product requirements document and does not exactly describe the currently shipped CRD schema. In particular, the current `KafkaBackup` CRD does not support a `retention` block or operator-managed backup data retention. See the README for current retention behavior.
+
 ---
 
 ## Executive Summary
