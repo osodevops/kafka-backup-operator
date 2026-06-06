@@ -169,15 +169,37 @@ spec:
 
 ## Backup Retention
 
-`KafkaBackup` does not currently manage backup data retention or automatically delete old backup segments, manifests, offset stores, or consumer group snapshots.
+Operator-managed `KafkaBackup` retention is disabled by default. Enable it per backup when you want the operator to prune complete backup sets from storage after a successful backup run:
 
-For scheduled point-in-time backups, each run writes a new backup ID. For continuous backups (`continuous: true`), the backup process keeps writing new segment objects as Kafka records are produced. In both modes, stored backup data remains in the configured backend until it is removed outside the operator.
+```yaml
+apiVersion: kafka.oso.sh/v1alpha1
+kind: KafkaBackup
+metadata:
+  name: production-backup
+spec:
+  kafkaCluster:
+    bootstrapServers:
+      - kafka:9092
+  topics:
+    - orders
+  storage:
+    storageType: pvc
+    pvc:
+      claimName: kafka-backups
+  schedule: "0 0 2 * * * *"
+  stopAtCurrentOffsets: true
+  retention:
+    enabled: true
+    maxAgeDays: 30
+    keepLast: 3
+    dryRun: false
+```
 
-Recommended retention approaches today:
+Retention deletes whole backup IDs, not individual segments, so point-in-time restore does not see partially pruned manifests. `keepLast` is a safety guard: if only `maxAgeDays` is set, the operator still keeps at least the newest backup set. Set `dryRun: true` first to report eligible backups without deleting data.
 
-- Use object storage lifecycle policies for S3, S3-compatible storage, Azure Blob Storage, or GCS. Scope lifecycle rules to the backup bucket/container prefix used by the `KafkaBackup`.
-- For PVC storage, use an external cleanup process such as a Kubernetes `CronJob` that mounts the same PVC and removes old backup files. Kubernetes PV reclaim policies only apply when the PVC is released; they do not clean up old files within an active volume.
-- Keep retention windows aligned with restore requirements. Deleting old segment objects can make older point-in-time restores unavailable.
+For scheduled point-in-time backups, each run writes a new backup ID. For continuous backups (`continuous: true`), the backup process keeps writing new segment objects as Kafka records are produced. Keep retention windows aligned with restore requirements because deleting old backup sets makes older point-in-time restores unavailable.
+
+Object storage lifecycle policies are still a good option when retention should be managed outside the operator. Operator-managed retention for GCS is not currently wired; use a GCS bucket lifecycle policy for that backend.
 
 The `retentionDays` field belongs to `KafkaBackupValidation` evidence retention and does not control `KafkaBackup` data retention.
 

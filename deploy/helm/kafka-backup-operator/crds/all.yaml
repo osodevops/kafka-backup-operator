@@ -289,6 +289,31 @@ spec:
                     minimum: 0.0
                     type: integer
                 type: object
+              retention:
+                description: Backup retention policy. Disabled unless explicitly enabled.
+                nullable: true
+                properties:
+                  dryRun:
+                    default: false
+                    description: Report retention actions without deleting data
+                    type: boolean
+                  enabled:
+                    default: false
+                    description: Enable operator-managed retention pruning
+                    type: boolean
+                  keepLast:
+                    description: Minimum number of newest backup sets to keep
+                    format: uint32
+                    minimum: 0.0
+                    nullable: true
+                    type: integer
+                  maxAgeDays:
+                    description: Delete backup sets older than this many days
+                    format: uint32
+                    minimum: 0.0
+                    nullable: true
+                    type: integer
+                type: object
               schedule:
                 description: Cron schedule for automated backups
                 nullable: true
@@ -582,6 +607,11 @@ spec:
                 format: date-time
                 nullable: true
                 type: string
+              lastRetentionTime:
+                description: Last retention pruning timestamp
+                format: date-time
+                nullable: true
+                type: string
               lastScheduleTime:
                 description: Authoritative timestamp of the most recent scheduled tick the operator has begun processing. Modelled on Kubernetes CronJob's `.status.lastScheduleTime`. Used as the monotonic anchor in `should_run_backup` so scheduling is immune to reflector-cache lag between a tick's `Running` patch and its `Completed` patch.
                 format: date-time
@@ -615,6 +645,38 @@ spec:
                 description: Whether the backup can be resumed
                 nullable: true
                 type: boolean
+              retentionDeletedBackups:
+                description: Number of backup sets deleted by the last retention run
+                format: uint64
+                minimum: 0.0
+                nullable: true
+                type: integer
+              retentionDryRun:
+                description: Whether the last retention run was a dry run
+                nullable: true
+                type: boolean
+              retentionEligibleBackups:
+                description: Number of backup sets eligible for deletion in the last retention run
+                format: uint64
+                minimum: 0.0
+                nullable: true
+                type: integer
+              retentionError:
+                description: Last retention error, if pruning failed after a successful backup
+                nullable: true
+                type: string
+              retentionInspectedBackups:
+                description: Number of backup sets inspected by the last retention run
+                format: uint64
+                minimum: 0.0
+                nullable: true
+                type: integer
+              retentionReclaimedBytes:
+                description: Bytes reclaimed by the last retention run
+                format: uint64
+                minimum: 0.0
+                nullable: true
+                type: integer
               segmentsCompleted:
                 description: Segments completed in current/last backup
                 format: uint64

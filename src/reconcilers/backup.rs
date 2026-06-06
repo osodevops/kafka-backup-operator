@@ -21,7 +21,7 @@ use kube::{
 };
 use serde_json::json;
 use std::str::FromStr;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::adapters::{
     build_backup_config, default_tls_dir, to_core_backup_config, ResolvedStorage, TlsFileManager,
@@ -29,6 +29,7 @@ use crate::adapters::{
 use crate::crd::KafkaBackup;
 use crate::error::{Error, Result};
 use crate::metrics;
+use crate::reconcilers::retention::{self, RetentionReport};
 
 /// Process-local guard recording the most recent wall-clock time at which
 /// this operator fired a scheduled backup for each `{namespace}/{name}`.
@@ -138,6 +139,8 @@ pub fn validate(backup: &KafkaBackup) -> Result<()> {
             ));
         }
     }
+
+    retention::validate_retention(backup.spec.retention.as_ref())?;
 
     Ok(())
 }
@@ -368,7 +371,7 @@ async fn execute_backup(backup: &KafkaBackup, client: &Client, namespace: &str) 
                     .and_then(|sched| sched.upcoming(Utc).next())
             });
 
-            let completed_status = json!({
+            let mut completed_status = json!({
                 "status": {
                     "phase": "Completed",
                     "message": "Backup completed successfully",
@@ -388,6 +391,38 @@ async fn execute_backup(backup: &KafkaBackup, client: &Client, namespace: &str) 
                     }]
                 }
             });
+
+            if let Some(status) = completed_status
+                .get_mut("status")
+                .and_then(|s| s.as_object_mut())
+            {
+                if let Some(retention) = &result.retention {
+                    status.insert("lastRetentionTime".to_string(), json!(Utc::now()));
+                    status.insert(
+                        "retentionInspectedBackups".to_string(),
+                        json!(retention.inspected_backups),
+                    );
+                    status.insert(
+                        "retentionEligibleBackups".to_string(),
+                        json!(retention.eligible_backups),
+                    );
+                    status.insert(
+                        "retentionDeletedBackups".to_string(),
+                        json!(retention.deleted_backups),
+                    );
+                    status.insert(
+                        "retentionReclaimedBytes".to_string(),
+                        json!(retention.reclaimed_bytes),
+                    );
+                    status.insert("retentionDryRun".to_string(), json!(retention.dry_run));
+                    status.insert("retentionError".to_string(), json!(null));
+                }
+
+                if let Some(retention_error) = &result.retention_error {
+                    status.insert("retentionError".to_string(), json!(retention_error));
+                }
+            }
+
             api.patch_status(
                 &name,
                 &PatchParams::apply("kafka-backup-operator"),
@@ -442,6 +477,8 @@ struct BackupResult {
     records_processed: u64,
     bytes_processed: u64,
     segments_completed: u64,
+    retention: Option<RetentionReport>,
+    retention_error: Option<String>,
 }
 
 /// Execute the actual backup using kafka-backup-core library
@@ -525,11 +562,36 @@ async fn execute_backup_internal(
         "Backup completed successfully"
     );
 
+    let mut retention_report = None;
+    let mut retention_error = None;
+
+    match retention::apply_retention(
+        &name,
+        backup.spec.retention.as_ref(),
+        &resolved_config.storage,
+        Some(&backup_id),
+    )
+    .await
+    {
+        Ok(report) => retention_report = report,
+        Err(e) => {
+            warn!(
+                name = %name,
+                backup_id = %backup_id,
+                error = %e,
+                "Backup completed but retention pruning failed"
+            );
+            retention_error = Some(e.to_string());
+        }
+    }
+
     Ok(BackupResult {
         backup_id,
         records_processed: metrics_report.records_processed,
         bytes_processed: metrics_report.bytes_written,
         segments_completed: metrics_report.segments_written,
+        retention: retention_report,
+        retention_error,
     })
 }
 
