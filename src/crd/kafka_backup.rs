@@ -89,6 +89,10 @@ pub struct KafkaBackupSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub circuit_breaker: Option<CircuitBreakerSpec>,
 
+    /// Backup retention policy. Disabled unless explicitly enabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retention: Option<RetentionSpec>,
+
     /// Suspend backups (useful for maintenance)
     #[serde(default)]
     pub suspend: bool,
@@ -658,6 +662,27 @@ fn default_max_partition_labels() -> usize {
     100
 }
 
+/// Retention policy for stored backup sets
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RetentionSpec {
+    /// Enable operator-managed retention pruning
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Delete backup sets older than this many days
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_age_days: Option<u32>,
+
+    /// Minimum number of newest backup sets to keep
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keep_last: Option<u32>,
+
+    /// Report retention actions without deleting data
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
 /// KafkaBackup status
 #[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -721,6 +746,34 @@ pub struct KafkaBackupStatus {
     /// Current backup ID
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backup_id: Option<String>,
+
+    /// Last retention pruning timestamp
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_retention_time: Option<DateTime<Utc>>,
+
+    /// Number of backup sets inspected by the last retention run
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retention_inspected_backups: Option<u64>,
+
+    /// Number of backup sets eligible for deletion in the last retention run
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retention_eligible_backups: Option<u64>,
+
+    /// Number of backup sets deleted by the last retention run
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retention_deleted_backups: Option<u64>,
+
+    /// Bytes reclaimed by the last retention run
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retention_reclaimed_bytes: Option<u64>,
+
+    /// Whether the last retention run was a dry run
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retention_dry_run: Option<bool>,
+
+    /// Last retention error, if pruning failed after a successful backup
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retention_error: Option<String>,
 
     /// Observed generation
     #[serde(skip_serializing_if = "Option::is_none")]

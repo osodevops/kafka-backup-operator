@@ -132,8 +132,9 @@ async fn cleanup(backup: Arc<KafkaBackup>, _ctx: Arc<Context>) -> Result<Action>
     let name = backup.name_any();
     info!(name = %name, "Cleaning up KafkaBackup");
 
-    // Cancel any running backup operations
-    // Note: The actual backup data in storage is NOT deleted (retention policy applies)
+    // Cancel any running backup operations.
+    // Backup data is not deleted when the KafkaBackup resource is removed.
+    // Operator-managed retention only runs after successful backups when enabled.
 
     metrics::CLEANUPS.with_label_values(&["KafkaBackup"]).inc();
 

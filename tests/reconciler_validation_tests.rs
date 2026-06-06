@@ -11,7 +11,7 @@ use kafka_backup_operator::crd::{
     KafkaBackupSpec, KafkaBackupValidation, KafkaBackupValidationSpec, KafkaClusterSpec,
     KafkaOffsetReset, KafkaOffsetResetSpec, KafkaRestore, KafkaRestoreSpec, MessageCountCheckSpec,
     OffsetMappingRef, OffsetRangeCheckSpec, OffsetResetStrategy, PitrSpec, PvcStorageSpec,
-    SigningKeyRef, SigningSpec, StorageSpec, TlsSecretRef, TopicRepartitioningSpec,
+    RetentionSpec, SigningKeyRef, SigningSpec, StorageSpec, TlsSecretRef, TopicRepartitioningSpec,
     ValidationChecksSpec, WebhookCheckSpec,
 };
 use kafka_backup_operator::reconcilers::{backup, offset_reset, restore, validation};
@@ -77,6 +77,7 @@ fn valid_backup_spec() -> KafkaBackupSpec {
         checkpoint: None,
         rate_limiting: None,
         circuit_breaker: None,
+        retention: None,
         suspend: false,
         metrics: None,
     }
@@ -286,6 +287,103 @@ fn backup_no_schedule_passes_validation() {
 
     let backup = create_backup(spec);
     assert!(backup::validate(&backup).is_ok());
+}
+
+#[test]
+fn backup_disabled_retention_passes_validation() {
+    let mut spec = valid_backup_spec();
+    spec.retention = Some(RetentionSpec {
+        enabled: false,
+        max_age_days: None,
+        keep_last: None,
+        dry_run: false,
+    });
+
+    let backup = create_backup(spec);
+    assert!(backup::validate(&backup).is_ok());
+}
+
+#[test]
+fn backup_enabled_retention_requires_policy() {
+    let mut spec = valid_backup_spec();
+    spec.retention = Some(RetentionSpec {
+        enabled: true,
+        max_age_days: None,
+        keep_last: None,
+        dry_run: false,
+    });
+
+    let backup = create_backup(spec);
+    let result = backup::validate(&backup);
+
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(err_msg.contains("maxAgeDays") || err_msg.contains("keepLast"));
+}
+
+#[test]
+fn backup_retention_zero_max_age_fails_validation() {
+    let mut spec = valid_backup_spec();
+    spec.retention = Some(RetentionSpec {
+        enabled: true,
+        max_age_days: Some(0),
+        keep_last: None,
+        dry_run: false,
+    });
+
+    let backup = create_backup(spec);
+    let result = backup::validate(&backup);
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("maxAgeDays"));
+}
+
+#[test]
+fn backup_retention_zero_keep_last_fails_validation() {
+    let mut spec = valid_backup_spec();
+    spec.retention = Some(RetentionSpec {
+        enabled: true,
+        max_age_days: None,
+        keep_last: Some(0),
+        dry_run: false,
+    });
+
+    let backup = create_backup(spec);
+    let result = backup::validate(&backup);
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("keepLast"));
+}
+
+#[test]
+fn backup_valid_retention_policies_pass_validation() {
+    let policies = vec![
+        RetentionSpec {
+            enabled: true,
+            max_age_days: Some(30),
+            keep_last: None,
+            dry_run: false,
+        },
+        RetentionSpec {
+            enabled: true,
+            max_age_days: None,
+            keep_last: Some(3),
+            dry_run: true,
+        },
+        RetentionSpec {
+            enabled: true,
+            max_age_days: Some(30),
+            keep_last: Some(3),
+            dry_run: false,
+        },
+    ];
+
+    for retention in policies {
+        let mut spec = valid_backup_spec();
+        spec.retention = Some(retention);
+        let backup = create_backup(spec);
+        assert!(backup::validate(&backup).is_ok());
+    }
 }
 
 #[test]
