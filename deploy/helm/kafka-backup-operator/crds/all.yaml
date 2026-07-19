@@ -239,7 +239,7 @@ spec:
                     type: boolean
                   maxPartitionLabels:
                     default: 100
-                    description: 'Maximum partition labels to prevent cardinality explosion (default: 100)'
+                    description: 'Maximum unique topic/partition series emitted by core metrics; set to 0 for unlimited series (default: 100)'
                     format: uint
                     minimum: 0.0
                     type: integer

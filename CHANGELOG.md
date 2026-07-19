@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.1 - 2026-07-19
+
+### Changed
+
+- Updated the embedded `kafka-backup-core` dependency from `v0.15.7` to
+  `v0.15.11`, incorporating the latest security refresh, pipelined segment
+  uploads, one-shot metrics keep-alive support, and corrected progress metric
+  cardinality accounting.
+- Clarified that `metrics.maxPartitionLabels` limits unique topic/partition
+  series and that `0` explicitly enables unlimited series.
+- Kept the operator image, Helm chart version, and Helm `appVersion` aligned at
+  `1.1.1`.
+
 ## 1.0.0 - 2026-04-13
 
 ### Breaking Changes

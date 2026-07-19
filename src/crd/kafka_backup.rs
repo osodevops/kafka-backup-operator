@@ -633,7 +633,8 @@ pub struct MetricsSpec {
     #[serde(default = "default_metrics_update_interval")]
     pub update_interval_ms: u64,
 
-    /// Maximum partition labels to prevent cardinality explosion (default: 100)
+    /// Maximum unique topic/partition series emitted by core metrics; set to 0
+    /// for unlimited series (default: 100)
     #[serde(default = "default_max_partition_labels")]
     pub max_partition_labels: usize,
 }

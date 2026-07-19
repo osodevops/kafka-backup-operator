@@ -1296,8 +1296,8 @@ dependencies = [
 
 [[package]]
 name = "kafka-backup-core"
-version = "0.15.7"
-source = "git+https://github.com/osodevops/kafka-backup.git?tag=v0.15.7#7796edc4fcc0ad3e2a3acc2d45439f5bbf7bbf5f"
+version = "0.15.11"
+source = "git+https://github.com/osodevops/kafka-backup.git?tag=v0.15.11#eb5c7ae243ef0604dfa2f48a0d5a3f4dda355cb1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1341,7 +1341,7 @@ dependencies = [
 
 [[package]]
 name = "kafka-backup-operator"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1599,9 +1599,9 @@ dependencies = [
 
 [[package]]
 name = "lz4_flex"
-version = "0.11.5"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08ab2867e3eeeca90e844d1940eab391c9dc5228783db2ed999acbc0a9ed375a"
+checksum = "7ef0d4ed8669f8f8826eb00dc878084aa8f253506c4fd5e8f58f5bce72ddb97e"
 dependencies = [
  "twox-hash",
 ]
