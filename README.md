@@ -362,16 +362,54 @@ See [docs/azure-workload-identity.md](docs/azure-workload-identity.md) for detai
 
 ## Monitoring
 
-The operator exposes Prometheus metrics on port 8080:
+The operator serves every metric it produces from a single endpoint on container
+port 8080. Backups run in-process, so there is no separate job pod to scrape:
+one Service, one ServiceMonitor, one target.
 
-| Metric | Description |
-|--------|-------------|
-| `kafka_backup_reconciliations_total` | Total reconciliation attempts |
-| `kafka_backup_reconcile_duration_seconds` | Reconciliation duration histogram |
-| `kafka_backup_backups_total` | Total backups by status |
-| `kafka_backup_backup_size_bytes` | Backup size in bytes |
-| `kafka_backup_backup_records` | Records processed |
-| `kafka_backup_restores_total` | Total restores by status |
+### Operator metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `kafka_backup_operator_build_info` | gauge | Always 1, labelled with the operator `version` |
+| `kafka_backup_operator_health` | gauge | Operator health (1 = healthy) |
+| `kafka_backup_operator_managed_resources` | gauge | Resources watched, by `kind` |
+| `kafka_backup_operator_reconciliations_total` | counter | Reconciliation attempts, by `kind` |
+| `kafka_backup_operator_reconciliation_errors_total` | counter | Reconciliation failures, by `kind` |
+| `kafka_backup_operator_reconcile_duration_seconds` | histogram | Reconciliation duration, by `kind` |
+| `kafka_backup_operator_cleanups_total` | counter | Finalizer cleanups, by `kind` |
+| `kafka_backup_operator_backups_total` | counter | Backups by `outcome` |
+| `kafka_backup_operator_backup_duration_seconds` | histogram | Backup duration |
+| `kafka_backup_operator_backup_size_bytes` | gauge | Size of the last backup |
+| `kafka_backup_operator_backup_records_total` | gauge | Records in the last backup |
+| `kafka_backup_operator_restores_total` | counter | Restores by `outcome` |
+| `kafka_backup_operator_restore_duration_seconds` | histogram | Restore duration |
+| `kafka_backup_operator_validations_total` | counter | Validations by `outcome` |
+| `kafka_backup_operator_validation_duration_seconds` | histogram | Validation duration |
+| `kafka_backup_operator_offset_resets_total` | counter | Offset resets by `outcome` |
+| `kafka_backup_operator_offset_reset_duration_seconds` | histogram | Offset reset duration |
+
+Per-resource series are labelled `resource_namespace` and `name`. The label is
+deliberately **not** called `namespace`: a Prometheus scrape already attaches its
+own `namespace` target label, and the collision would rename the exposed one to
+`exported_namespace`, hiding these series from the obvious query.
+
+### Backup runtime metrics
+
+With `spec.metrics.enabled` (the default), kafka-backup-core's runtime metrics
+are exported on the same endpoint under the `kafka_backup_` prefix, labelled by
+`backup_id`. A running backup emits `kafka_backup_records_total`,
+`kafka_backup_bytes_total`, `kafka_backup_uncompressed_bytes_total`,
+`kafka_backup_compressed_bytes_total`, `kafka_backup_compression_ratio`,
+`kafka_backup_lag_records`, `kafka_backup_lag_records_sum`,
+`kafka_backup_storage_write_bytes_total` (labelled with the storage `backend`)
+and `kafka_backup_storage_write_latency_seconds`. Further families — throughput,
+snapshot progress, retries, rebalances — appear once a backup exercises the
+corresponding code path.
+
+Set `spec.metrics.enabled: false` on a `KafkaBackup` to leave them out. The
+number of distinct topic/partition label sets is capped operator-wide by
+`metrics.maxPartitionLabels` (Helm) / `METRICS_MAX_PARTITION_LABELS` (env),
+defaulting to 100; set 0 for no cap.
 
 ### ServiceMonitor (Prometheus Operator)
 
@@ -383,6 +421,13 @@ metrics:
     interval: 30s
     labels:
       release: prometheus
+```
+
+Verify the endpoint directly with:
+
+```bash
+kubectl -n <namespace> port-forward svc/kafka-backup-operator-metrics 8080:8080
+curl -s http://127.0.0.1:8080/metrics | grep -E '^kafka_backup_(operator_)?'
 ```
 
 ## Disaster Recovery Workflow

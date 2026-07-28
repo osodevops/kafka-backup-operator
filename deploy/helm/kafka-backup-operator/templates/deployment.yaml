@@ -45,6 +45,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            {{- if .Values.metrics.enabled }}
+            - name: METRICS_MAX_PARTITION_LABELS
+              value: {{ .Values.metrics.maxPartitionLabels | quote }}
+            {{- end }}
             {{- if .Values.leaderElection.enabled }}
             - name: LEADER_ELECTION_ENABLED
               value: "true"

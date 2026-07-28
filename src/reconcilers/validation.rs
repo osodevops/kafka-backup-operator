@@ -8,7 +8,7 @@
 //! - Notification delivery
 
 use std::str::FromStr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use kube::{
@@ -182,7 +182,9 @@ pub async fn execute(
     .await?;
 
     // Execute validation
+    let started_at = Instant::now();
     let validation_result = execute_validation_internal(validation, client, namespace).await;
+    let elapsed = started_at.elapsed();
 
     match validation_result {
         Ok(result) => {
@@ -197,6 +199,9 @@ pub async fn execute(
             metrics::VALIDATIONS_TOTAL
                 .with_label_values(&[&result.overall_result, namespace, &name])
                 .inc();
+            metrics::VALIDATION_DURATION
+                .with_label_values(&[namespace, &name])
+                .observe(elapsed.as_secs_f64());
 
             let check_results: Vec<serde_json::Value> = result
                 .check_results

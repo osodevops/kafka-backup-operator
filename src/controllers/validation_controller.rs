@@ -38,7 +38,10 @@ pub async fn run(client: Client, context: Arc<Context>) {
 
     info!("Starting KafkaBackupValidation controller");
 
-    Controller::new(api, WatcherConfig::default())
+    let controller = Controller::new(api, WatcherConfig::default());
+    crate::controllers::track_managed_resources(controller.store(), "KafkaBackupValidation");
+
+    controller
         .shutdown_on_signal()
         .run(reconcile, error_policy, context)
         .for_each(|result| async move {

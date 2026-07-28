@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use cron::Schedule;
@@ -24,7 +24,8 @@ use std::str::FromStr;
 use tracing::{debug, error, info, warn};
 
 use crate::adapters::{
-    build_backup_config, default_tls_dir, to_core_backup_config, ResolvedStorage, TlsFileManager,
+    build_backup_config, default_tls_dir, to_core_backup_config, ResolvedBackupConfig,
+    ResolvedStorage, TlsFileManager,
 };
 use crate::crd::KafkaBackup;
 use crate::error::{Error, Result};
@@ -345,9 +346,9 @@ async fn execute_backup(backup: &KafkaBackup, client: &Client, namespace: &str) 
     )
     .await?;
 
-    // TODO: Execute actual backup using kafka-backup-core
-    // For now, simulate a successful backup
+    let started_at = Instant::now();
     let backup_result = execute_backup_internal(backup, client, namespace).await;
+    let elapsed = started_at.elapsed();
 
     match backup_result {
         Ok(result) => {
@@ -363,6 +364,9 @@ async fn execute_backup(backup: &KafkaBackup, client: &Client, namespace: &str) 
             metrics::BACKUP_RECORDS
                 .with_label_values(&[namespace, &name])
                 .set(result.records_processed as f64);
+            metrics::BACKUP_DURATION
+                .with_label_values(&[namespace, &name])
+                .observe(elapsed.as_secs_f64());
 
             // Calculate next scheduled backup
             let next_backup = backup.spec.schedule.as_ref().and_then(|s| {
@@ -481,6 +485,20 @@ struct BackupResult {
     retention_error: Option<String>,
 }
 
+/// Whether this backup should feed kafka-backup-core runtime metrics.
+///
+/// Omitting `spec.metrics` entirely leaves collection on, matching the `enabled`
+/// field's own default; set `spec.metrics.enabled: false` to opt out. The
+/// endpoint is protected from cardinality growth by the shared registry's
+/// partition label cap rather than by leaving metrics off.
+fn core_metrics_enabled(resolved: &ResolvedBackupConfig) -> bool {
+    resolved
+        .metrics
+        .as_ref()
+        .map(|metrics| metrics.enabled)
+        .unwrap_or(true)
+}
+
 /// Execute the actual backup using kafka-backup-core library
 async fn execute_backup_internal(
     backup: &KafkaBackup,
@@ -534,7 +552,19 @@ async fn execute_backup_internal(
     debug!(working_dir = %working_dir.display(), "Changed working directory for backup engine");
 
     // 5. Create the backup engine (async constructor)
-    let engine = BackupEngine::new(core_config)
+    //
+    // Hand the engine the shared core metrics registry so its runtime metrics
+    // (lag, throughput, storage IO, snapshot progress) land on the operator's
+    // own /metrics endpoint. Omitting it leaves those families unexposed, which
+    // is what made them invisible to Prometheus (issue #73).
+    let core_prometheus = if core_metrics_enabled(&resolved_config) {
+        Some(metrics::core_metrics())
+    } else {
+        debug!(name = %name, "Core runtime metrics disabled for this backup");
+        None
+    };
+
+    let engine = BackupEngine::new_with_metrics(core_config, core_prometheus)
         .await
         .map_err(|e| Error::Core(format!("Failed to create backup engine: {}", e)))?;
 

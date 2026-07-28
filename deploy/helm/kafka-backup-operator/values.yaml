@@ -90,6 +90,10 @@ logging:
 # Metrics configuration
 metrics:
   enabled: true
+  # Cap on the number of distinct topic/partition label sets the
+  # kafka-backup-core runtime metrics may expose, guarding the endpoint against
+  # cardinality blow-ups. Set to 0 for no cap.
+  maxPartitionLabels: 100
   serviceMonitor:
     enabled: false
     interval: 30s

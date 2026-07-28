@@ -231,31 +231,31 @@ spec:
                 properties:
                   bindAddress:
                     default: 0.0.0.0
-                    description: 'Bind address for metrics server (default: "0.0.0.0")'
+                    description: 'Ignored: metrics are served on the operator''s listener'
                     type: string
                   enabled:
                     default: true
-                    description: 'Enable metrics collection (default: true)'
+                    description: 'Export kafka-backup-core runtime metrics for this backup (lag, throughput, storage IO, snapshot progress) on the operator''s metrics endpoint (default: true)'
                     type: boolean
                   maxPartitionLabels:
                     default: 100
-                    description: 'Maximum unique topic/partition series emitted by core metrics; set to 0 for unlimited series (default: 100)'
+                    description: 'Ignored: the cardinality cap is operator-wide, set with the METRICS_MAX_PARTITION_LABELS environment variable (default: 100)'
                     format: uint
                     minimum: 0.0
                     type: integer
                   path:
                     default: /metrics
-                    description: 'Metrics endpoint path (default: "/metrics")'
+                    description: 'Ignored: metrics are served on the operator''s /metrics path'
                     type: string
                   port:
                     default: 9090
-                    description: 'Port for metrics HTTP server (default: 9090)'
+                    description: 'Ignored: metrics are served on the operator''s port, not per backup'
                     format: uint16
                     minimum: 0.0
                     type: integer
                   updateIntervalMs:
                     default: 500
-                    description: 'Metrics update interval in milliseconds (default: 500)'
+                    description: 'Ignored: core metrics are updated inline as the backup progresses'
                     format: uint64
                     minimum: 0.0
                     type: integer
