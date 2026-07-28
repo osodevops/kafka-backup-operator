@@ -609,32 +609,39 @@ fn default_operation_timeout() -> u64 {
     30000
 }
 
-/// Metrics configuration for Prometheus metrics server
+/// Metrics configuration for a backup.
+///
+/// Backups run inside the operator process and every metric family is served
+/// from the operator's own endpoint (container port 8080), so there is no
+/// per-backup metrics server. Only `enabled` changes behaviour; the remaining
+/// fields are retained for backwards compatibility and are ignored.
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MetricsSpec {
-    /// Enable metrics collection (default: true)
+    /// Export kafka-backup-core runtime metrics for this backup (lag,
+    /// throughput, storage IO, snapshot progress) on the operator's metrics
+    /// endpoint (default: true)
     #[serde(default = "default_metrics_enabled")]
     pub enabled: bool,
 
-    /// Port for metrics HTTP server (default: 9090)
+    /// Ignored: metrics are served on the operator's port, not per backup
     #[serde(default = "default_metrics_port")]
     pub port: u16,
 
-    /// Bind address for metrics server (default: "0.0.0.0")
+    /// Ignored: metrics are served on the operator's listener
     #[serde(default = "default_metrics_bind_address")]
     pub bind_address: String,
 
-    /// Metrics endpoint path (default: "/metrics")
+    /// Ignored: metrics are served on the operator's /metrics path
     #[serde(default = "default_metrics_path")]
     pub path: String,
 
-    /// Metrics update interval in milliseconds (default: 500)
+    /// Ignored: core metrics are updated inline as the backup progresses
     #[serde(default = "default_metrics_update_interval")]
     pub update_interval_ms: u64,
 
-    /// Maximum unique topic/partition series emitted by core metrics; set to 0
-    /// for unlimited series (default: 100)
+    /// Ignored: the cardinality cap is operator-wide, set with the
+    /// METRICS_MAX_PARTITION_LABELS environment variable (default: 100)
     #[serde(default = "default_max_partition_labels")]
     pub max_partition_labels: usize,
 }

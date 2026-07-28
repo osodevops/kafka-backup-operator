@@ -7,7 +7,7 @@
 //! - Offset recovery
 //! - Rollback handling
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use kafka_backup_core::restore::engine::RestoreEngine;
@@ -216,7 +216,9 @@ pub async fn execute(restore: &KafkaRestore, client: &Client, namespace: &str) -
 
     // Execute restore. Offset reset, when requested, is handled inside
     // execute_restore_internal so the final status reflects the full workflow.
+    let started_at = Instant::now();
     let restore_result = execute_restore_internal(restore, client, namespace).await;
+    let elapsed = started_at.elapsed();
 
     match restore_result {
         Ok(result) => {
@@ -230,6 +232,9 @@ pub async fn execute(restore: &KafkaRestore, client: &Client, namespace: &str) -
             metrics::RESTORES_TOTAL
                 .with_label_values(&["success", namespace, &name])
                 .inc();
+            metrics::RESTORE_DURATION
+                .with_label_values(&[namespace, &name])
+                .observe(elapsed.as_secs_f64());
 
             let completed_status = json!({
                 "status": {
