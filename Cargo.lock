@@ -1296,8 +1296,8 @@ dependencies = [
 
 [[package]]
 name = "kafka-backup-core"
-version = "0.15.12"
-source = "git+https://github.com/osodevops/kafka-backup.git?tag=v0.15.12#ec2995a40a7dd881b9310bc2cc7a6ca1a7c8944f"
+version = "0.16.0"
+source = "git+https://github.com/osodevops/kafka-backup.git?tag=v0.16.0#1db01ccc6ad627d105d137b95bea2ca8740e1e86"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1324,6 +1324,7 @@ dependencies = [
  "rustls",
  "rustls-pemfile",
  "serde",
+ "serde_ignored",
  "serde_json",
  "serde_yaml",
  "sha2",
@@ -2560,6 +2561,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.111",
+]
+
+[[package]]
+name = "serde_ignored"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "115dffd5f3853e06e746965a20dcbae6ee747ae30b543d91b0e089668bb07798"
+dependencies = [
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
