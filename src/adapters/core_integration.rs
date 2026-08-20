@@ -342,6 +342,8 @@ fn to_core_backup_options(resolved: &ResolvedBackupConfig) -> BackupOptions {
         max_concurrent_partitions,
         poll_interval_ms: resolved.backup_options.poll_interval_ms,
         consumer_group_snapshot: resolved.backup_options.consumer_group_snapshot,
+        fetch_max_bytes: None,
+        segment_max_records: None,
     }
 }
 

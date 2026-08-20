@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.2.1 - 2026-08-20
+
+### Fixed
+
+- Backups no longer fail with `failed to decompress raw snappy bytes …
+  snappy: corrupt input` on snappy-compressed messages from clients that
+  emit raw (non-xerial-framed) snappy, e.g. franz-go
+  ([kafka-backup#152](https://github.com/osodevops/kafka-backup/issues/152)),
+  and no longer misdecode record batches whose records' timestamps span more
+  than ~24.8 days
+  ([kafka-backup#150](https://github.com/osodevops/kafka-backup/issues/150)).
+  Both were bugs in the embedded `kafka-protocol` dependency, fixed by
+  updating `kafka-backup-core` from v0.15.12 to v0.17.4 (kafka-protocol
+  0.18.0). The update also brings the core fixes from kafka-backup
+  v0.16.0–v0.17.4: compacted-topic stall recovery, `OFFSET_OUT_OF_RANGE`
+  recovery with retention-gap records, connection-loss classification with
+  fetch retry, and offset resets applied after restore when configured.
+
+### Changed
+
+- `kafka-backup-core` is now consumed from crates.io (`0.17.4`) instead of a
+  git tag, since core publishing has resumed.
+
 ## 1.2.0 - 2026-07-28
 
 ### Breaking Changes
