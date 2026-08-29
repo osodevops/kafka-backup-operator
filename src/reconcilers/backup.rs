@@ -571,8 +571,25 @@ async fn execute_backup_internal(
     // 6. Get metrics handle for tracking progress
     let metrics_handle = engine.metrics();
 
+    // 6b. Stop the engine gracefully when the operator is asked to shut down
+    // (SIGTERM during a rollout, node drain or eviction): it checkpoints and
+    // returns instead of being cut off mid-run, and the leader lease is only
+    // released once this reconcile has returned (issue #79).
+    let stop_forwarder = crate::shutdown::current().map(|shutdown| {
+        let handle = engine.shutdown_handle();
+        let name = name.clone();
+        tokio::spawn(async move {
+            shutdown.await;
+            info!(name = %name, "Operator shutting down; stopping the running backup engine");
+            let _ = handle.send(());
+        })
+    });
+
     // 7. Run the backup (must run in the same working directory as engine was created)
     let run_result = engine.run().await;
+    if let Some(task) = stop_forwarder {
+        task.abort();
+    }
 
     // Restore original working directory after backup completes
     if let Some(ref orig) = original_dir {

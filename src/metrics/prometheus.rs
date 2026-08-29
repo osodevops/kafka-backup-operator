@@ -15,7 +15,40 @@
 //! feeds the shared core registry.
 
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, OnceLock};
+
+use crate::leader::{readiness, LeaderState};
+
+/// Leader-election state mirrored for `/readyz` (0 unknown, 1 follower, 2 leader).
+static LEADER_STATE: AtomicU8 = AtomicU8::new(2);
+
+/// Publish this replica's leader-election state for readiness and the gauge.
+pub fn set_leader_state(identity: &str, state: LeaderState) {
+    let code = match state {
+        LeaderState::Unknown => 0,
+        LeaderState::Follower => 1,
+        LeaderState::Leader => 2,
+    };
+    LEADER_STATE.store(code, Ordering::Relaxed);
+    LEADER
+        .with_label_values(&[identity])
+        .set(if state == LeaderState::Leader {
+            1.0
+        } else {
+            0.0
+        });
+}
+
+/// The state last published with [`set_leader_state`]. Starts as `Leader`, the
+/// behaviour with leader election disabled.
+pub fn leader_state() -> LeaderState {
+    match LEADER_STATE.load(Ordering::Relaxed) {
+        0 => LeaderState::Unknown,
+        1 => LeaderState::Follower,
+        _ => LeaderState::Leader,
+    }
+}
 
 use http_body_util::Full;
 use hyper::body::Bytes;
@@ -193,6 +226,13 @@ lazy_static::lazy_static! {
     ).unwrap();
 
     /// Operator health (1 = healthy, 0 = unhealthy)
+    pub static ref LEADER: GaugeVec = register_gauge_vec!(
+        "kafka_backup_operator_leader",
+        "1 when this operator replica holds the leader lease (or leader election is disabled), 0 while it is a standby",
+        &["identity"]
+    )
+    .unwrap();
+
     pub static ref OPERATOR_HEALTH: prometheus::Gauge = prometheus::register_gauge!(
         "kafka_backup_operator_health",
         "Operator health status (1 = healthy, 0 = unhealthy)"
@@ -321,11 +361,13 @@ fn health_response() -> Response<Full<Bytes>> {
         .unwrap()
 }
 
-/// Readiness check response
-fn ready_response() -> Response<Full<Bytes>> {
+/// Readiness check response: `503` until this replica has observed the
+/// leader lease, then `standby` / `leader` (see `leader::readiness`).
+pub fn ready_response() -> Response<Full<Bytes>> {
+    let (status, body) = readiness(leader_state());
     Response::builder()
-        .status(StatusCode::OK)
-        .body(Full::new(Bytes::from("ok")))
+        .status(status)
+        .body(Full::new(Bytes::from(body)))
         .unwrap()
 }
 

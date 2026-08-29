@@ -1,0 +1,11 @@
+# Large topic for the graceful-stop scenario only (keeps backup-test-topic small).
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: backup-test-big
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: my-cluster
+spec:
+  partitions: 3
+  replicas: 1

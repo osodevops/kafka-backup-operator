@@ -7,6 +7,19 @@ metadata:
     app.kubernetes.io/component: controller
 spec:
   replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: {{ .Values.updateStrategy.type | default "RollingUpdate" }}
+    {{- if eq (.Values.updateStrategy.type | default "RollingUpdate") "RollingUpdate" }}
+    {{- with .Values.updateStrategy.rollingUpdate }}
+    rollingUpdate:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- else }}
+    # Explicit null clears the API-defaulted rollingUpdate block (forbidden with
+    # Recreate) for releases managed with client-side apply; server-side apply
+    # cannot remove an unowned default - see values.yaml.
+    rollingUpdate: null
+    {{- end }}
   selector:
     matchLabels:
       {{- include "kafka-backup-operator.selectorLabels" . | nindent 6 }}
@@ -58,6 +71,8 @@ spec:
               value: {{ .Values.leaderElection.renewDeadline | quote }}
             - name: LEADER_ELECTION_RETRY_PERIOD
               value: {{ .Values.leaderElection.retryPeriod | quote }}
+            - name: LEADER_ELECTION_LEASE_NAME
+              value: {{ printf "%s-leader" (include "kafka-backup-operator.fullname" .) | quote }}
             {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
@@ -94,7 +109,7 @@ spec:
         {{- with .Values.extraVolumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

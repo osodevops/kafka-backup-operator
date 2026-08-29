@@ -1,0 +1,24 @@
+# Seeds backup-test-topic. Re-apply with a new name to add more records.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-records
+  namespace: kafka
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: producer
+          image: quay.io/strimzi/kafka:0.46.1-kafka-4.0.0
+          command:
+            - sh
+            - -c
+            - |
+              bin/kafka-producer-perf-test.sh --topic backup-test-topic --num-records ${NUM_RECORDS:-50000} \
+                --record-size 200 --throughput -1 --producer-props bootstrap.servers=my-cluster-kafka-bootstrap.kafka.svc:9092 \
+                acks=1 linger.ms=50 batch.size=262144 | tail -2
+          env:
+            - name: NUM_RECORDS
+              value: "50000"
