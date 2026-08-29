@@ -136,7 +136,13 @@ async fn main() -> anyhow::Result<()> {
     state_task.abort();
     metrics_handle.abort();
     info!("OSO Kafka Backup Operator stopped");
-    Ok(())
+    // Everything orderly is done: the controllers have drained, the engine has
+    // finalized and the lease is released. Do not wait for the runtime to
+    // tear down abandoned blocking work (e.g. a compression worker of the
+    // stopped engine) — that is what used to exhaust the termination grace
+    // period and get the pod SIGKILLed. Flush the logs and leave.
+    drop(_log_guard);
+    std::process::exit(0);
 }
 
 /// Run all controllers until the shared shutdown future resolves and every
