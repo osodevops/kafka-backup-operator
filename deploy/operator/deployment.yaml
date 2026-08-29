@@ -8,6 +8,12 @@ metadata:
     app.kubernetes.io/component: controller
 spec:
   replicas: 1
+  # Never schedule two operator pods at once (issue #79).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: kafka-backup-operator

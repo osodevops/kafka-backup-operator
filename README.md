@@ -266,7 +266,21 @@ Key configuration options for the Helm chart:
 
 ```yaml
 # values.yaml
-replicaCount: 1
+replicaCount: 1              # >1 = warm standbys (see "High availability and upgrades")
+
+updateStrategy:              # never schedule two operator pods at once (issue #79)
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 0
+    maxUnavailable: 1
+
+terminationGracePeriodSeconds: 60   # time for a running backup to finalize on shutdown
+
+leaderElection:              # only the lease holder runs the controllers
+  enabled: true
+  leaseDuration: 15s
+  renewDeadline: 10s
+  retryPeriod: 2s
 
 image:
   repository: ghcr.io/osodevops/kafka-backup-operator
@@ -323,6 +337,41 @@ extraEnv:
   - name: SSL_CERT_FILE
     value: /etc/internal-certs/ca.crt
 ```
+
+
+## High availability and upgrades
+
+The operator is a single writer: exactly one replica may run the controllers
+at a time, otherwise two pods decide the same schedules independently and can
+execute the same backup twice (issue #79). Two mechanisms enforce that:
+
+- **`updateStrategy`** (default `RollingUpdate` with `maxSurge: 0`,
+  `maxUnavailable: 1`) — the outgoing pod is deleted before its replacement is
+  created, so at most one operator pod is scheduled at any time. `type:
+  Recreate` additionally waits for the old pod to be fully gone, but an
+  existing release managed with server-side apply (Helm 4) cannot switch to it
+  in place — Kubernetes forbids the API-defaulted `rollingUpdate` block
+  together with `Recreate`. Use it on fresh installs, or remove the block
+  first: `kubectl patch deploy <release> --type=json -p '[{"op":"remove","path":"/spec/strategy/rollingUpdate"}]'`.
+- **Leader election** (`leaderElection.enabled`, default `true`) — replicas
+  compete for the Lease `<release fullname>-leader` in the operator namespace
+  (`kubectl get lease -n <ns>`). Only the holder runs the controllers; the
+  others stand by (`/readyz` returns `standby`). On shutdown the leader asks a
+  running backup or restore to stop — the engine checkpoints, syncs its offset
+  database and writes its manifest — then releases the lease, so the successor
+  takes over within about one `retryPeriod`; after a crash the standby waits
+  `leaseDuration` (15s). A leader that cannot renew within `renewDeadline`
+  exits and is restarted by the kubelet as a candidate. Give the drain time
+  with `terminationGracePeriodSeconds` (default 60).
+
+For a warm standby run `replicaCount: 2`: the second pod becomes `Ready` as a
+standby and acquires the lease as soon as the leader releases it. `/readyz`
+returns `503 leader election pending` until a replica has observed the lease
+at least once, so an install whose ServiceAccount lacks the
+`coordination.k8s.io/leases` rule (rendered by the chart when leader election
+is enabled) fails `helm upgrade --wait` instead of running silently. Set
+`leaderElection.enabled=false` to opt out. The gauge
+`kafka_backup_operator_leader{identity}` is `1` on the leader.
 
 ## Azure Workload Identity Setup
 

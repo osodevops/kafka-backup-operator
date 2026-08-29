@@ -40,10 +40,27 @@ jobs:
             --set azureWorkloadIdentity.enabled=true \
             --set azureWorkloadIdentity.clientId=test-client-id > /dev/null
 
-      - name: Helm template (leader election)
+      - name: Helm template (defaults never run two operator pods, issue #79)
+        run: |
+          helm template test-release deploy/helm/kafka-backup-operator | tee /tmp/kbo-default.yaml > /dev/null
+          grep -q 'type: RollingUpdate' /tmp/kbo-default.yaml
+          grep -q 'maxSurge: 0' /tmp/kbo-default.yaml
+          grep -q 'maxUnavailable: 1' /tmp/kbo-default.yaml
+          grep -q 'name: LEADER_ELECTION_ENABLED' /tmp/kbo-default.yaml
+          grep -q 'name: LEADER_ELECTION_LEASE_NAME' /tmp/kbo-default.yaml
+          grep -q 'value: "test-release-kafka-backup-operator-leader"' /tmp/kbo-default.yaml
+          grep -q 'value: "15s"' /tmp/kbo-default.yaml
+          grep -q 'coordination.k8s.io' /tmp/kbo-default.yaml
+          grep -q 'terminationGracePeriodSeconds: 60' /tmp/kbo-default.yaml
+
+      - name: Helm template (leader election off, Recreate)
         run: |
           helm template test-release deploy/helm/kafka-backup-operator \
-            --set leaderElection.enabled=true > /dev/null
+            --set leaderElection.enabled=false --set updateStrategy.type=Recreate | tee /tmp/kbo-optout.yaml > /dev/null
+          grep -q 'type: Recreate' /tmp/kbo-optout.yaml
+          ! grep -q 'maxSurge' /tmp/kbo-optout.yaml
+          ! grep -q 'LEADER_ELECTION_ENABLED' /tmp/kbo-optout.yaml
+          ! grep -q 'coordination.k8s.io' /tmp/kbo-optout.yaml
 
       - name: Helm template (service monitor)
         run: |

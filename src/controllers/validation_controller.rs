@@ -22,12 +22,13 @@ use crate::crd::KafkaBackupValidation;
 use crate::error::{Error, Result};
 use crate::metrics;
 use crate::reconcilers::validation as validation_reconciler;
+use crate::shutdown::Shutdown;
 
 /// Finalizer name for KafkaBackupValidation resources
 const FINALIZER_NAME: &str = "kafka.oso.sh/validation-finalizer";
 
 /// Run the KafkaBackupValidation controller
-pub async fn run(client: Client, context: Arc<Context>) {
+pub async fn run(client: Client, context: Arc<Context>, shutdown: Shutdown) {
     let api: Api<KafkaBackupValidation> = Api::all(client.clone());
 
     // Verify CRD is installed
@@ -42,7 +43,7 @@ pub async fn run(client: Client, context: Arc<Context>) {
     crate::controllers::track_managed_resources(controller.store(), "KafkaBackupValidation");
 
     controller
-        .shutdown_on_signal()
+        .graceful_shutdown_on(shutdown)
         .run(reconcile, error_policy, context)
         .for_each(|result| async move {
             match result {

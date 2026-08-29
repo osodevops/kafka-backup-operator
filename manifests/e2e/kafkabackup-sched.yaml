@@ -1,0 +1,31 @@
+# Scheduled backup used by the #79 e2e scenarios: fires every 10 seconds
+# (7-field cron with seconds), snapshot mode, PVC storage mounted into the
+# operator pod at /data/kafka-backup-storage (see operator_install in lib.sh).
+apiVersion: kafka.oso.sh/v1alpha1
+kind: KafkaBackup
+metadata:
+  name: sched
+  namespace: kbo
+spec:
+  topics:
+    - backup-test-topic
+  kafkaCluster:
+    bootstrapServers:
+      - my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092
+    securityProtocol: PLAINTEXT
+  storage:
+    storageType: pvc
+    pvc:
+      claimName: kafka-backup-storage
+      subPath: backups
+  compression: zstd
+  compressionLevel: 3
+  schedule: "*/10 * * * * * *"
+  stopAtCurrentOffsets: true
+  checkpoint:
+    enabled: true
+    intervalSecs: 30
+  rateLimiting:
+    maxConcurrentPartitions: 2
+    bytesPerSec: 0
+    recordsPerSec: 0

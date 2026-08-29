@@ -3,6 +3,26 @@
 # Number of replicas
 replicaCount: 1
 
+# Deployment update strategy. The default never schedules two operator pods
+# at once (maxSurge 0 / maxUnavailable 1): the outgoing pod is deleted before
+# its replacement is created, and while it drains (finishing a running backup)
+# the leader lease keeps it the only one executing schedules (issue #79).
+# `type: Recreate` additionally waits for the old pod to be fully gone, but an
+# existing release managed with server-side apply (Helm 4) cannot switch to it
+# in place: the API-defaulted rollingUpdate block is forbidden with Recreate.
+# Use Recreate on fresh installs, or first run
+# `kubectl patch deploy <release> --type=json -p '[{"op":"remove","path":"/spec/strategy/rollingUpdate"}]'`.
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 0
+    maxUnavailable: 1
+
+# How long a stopping pod may take to finish its work: a running backup is
+# asked to stop (it checkpoints and finalizes) before the leader lease is
+# released.
+terminationGracePeriodSeconds: 60
+
 image:
   repository: ghcr.io/osodevops/kafka-backup-operator
   pullPolicy: Always
@@ -107,9 +127,15 @@ crds:
   # Keep CRDs on chart uninstall
   keep: true
 
-# Leader election configuration (for HA deployments)
+# Leader election. Only the replica holding the Lease
+# `<release fullname>-leader` (coordination.k8s.io, in the operator namespace)
+# runs the controllers and executes schedules; the others stand by and report
+# `standby` on /readyz. Prevents two operator pods (rollout, node drain,
+# eviction, replicaCount > 1) from running the same KafkaBackup at once.
+# Requires the leases RBAC rule the chart renders when enabled; set to false
+# to opt out.
 leaderElection:
-  enabled: false
-  leaseDuration: 15s
-  renewDeadline: 10s
-  retryPeriod: 2s
+  enabled: true
+  leaseDuration: 15s   # how long a standby waits without seeing a change before taking over
+  renewDeadline: 10s   # how long the leader keeps retrying renewals before it exits (and restarts)
+  retryPeriod: 2s      # interval between acquire/renew attempts; must be < renewDeadline < leaseDuration

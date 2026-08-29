@@ -442,11 +442,24 @@ async fn execute_restore_internal(
             }
         });
 
+        // Stop the engine gracefully when the operator is asked to shut down
+        // (issue #79), instead of being cut off mid-run.
+        let stop_forwarder = crate::shutdown::current().map(|shutdown| {
+            let handle = engine.shutdown_handle();
+            let name = name.clone();
+            tokio::spawn(async move {
+                shutdown.await;
+                info!(name = %name, "Operator shutting down; stopping the running restore engine");
+                let _ = handle.send(());
+            })
+        });
+
         // 6. Run the restore
-        engine
-            .run()
-            .await
-            .map_err(|e| Error::Core(format!("Restore execution failed: {}", e)))?
+        let run_result = engine.run().await;
+        if let Some(task) = stop_forwarder {
+            task.abort();
+        }
+        run_result.map_err(|e| Error::Core(format!("Restore execution failed: {}", e)))?
     };
 
     info!(

@@ -26,3 +26,6 @@ Thumbs.db
 # Build artifacts
 *.tar.gz
 *.zip
+
+# Local e2e artefacts (scripts/e2e)
+.e2e/
