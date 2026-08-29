@@ -12,9 +12,16 @@ build() { # <src-dir> <tag>
   if [ -z "${FORCE:-}" ] && have "$tag"; then log "image $tag already loaded"; return; fi
   local work="$E2E_DIR/build-$tag"; rm -rf "$work"; mkdir -p "$work"
   rsync -a --exclude target --exclude .e2e --exclude .git "$src/" "$work/"
-  docker build -q -t "$IMAGE_REPO:$tag" "$work" >/dev/null
+  local build; build="$(date -u +%Y%m%dT%H%M%SZ)-$(git -C "$src" rev-parse --short HEAD 2>/dev/null || echo wt)"
+  docker build -q --label "e2e.build=$build" -t "$IMAGE_REPO:$tag" "$work" >/dev/null
+  # A same-tag `minikube image load` does not replace an image already on the
+  # node: untag it there first, then load, then prove the node has this build
+  # (image IDs are re-created on load, so compare the build label instead).
+  minikube -p "$PROFILE" ssh -- "docker rmi -f $IMAGE_REPO:$tag" >/dev/null 2>&1 || true
   minikube -p "$PROFILE" image load "$IMAGE_REPO:$tag"
-  log "built+loaded $IMAGE_REPO:$tag ($(docker image inspect "$IMAGE_REPO:$tag" --format '{{.Created}}'))"
+  local have; have=$(minikube -p "$PROFILE" ssh -- "docker image inspect -f '{{index .Config.Labels \"e2e.build\"}}' $IMAGE_REPO:$tag" 2>/dev/null | tr -d '\r')
+  [ "$have" = "$build" ] || fail "node has build '$have' for $IMAGE_REPO:$tag, expected '$build'"
+  log "built+loaded $IMAGE_REPO:$tag (build $build)"
 }
 if [ ! -d "$E2E_DIR/src-v1.2.2" ]; then git -C "$ROOT" worktree add "$E2E_DIR/src-v1.2.2" v1.2.2 >/dev/null; fi
 build "$E2E_DIR/src-v1.2.2" 1.2.2

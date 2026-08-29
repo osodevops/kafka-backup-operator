@@ -73,8 +73,12 @@ evidence() { { echo; echo "## $1 ($(date -u +%FT%TZ))"; echo "status: $(backup_s
 
 # operator_install <chart-dir> <image-tag> [extra helm args...]
 operator_install() { local chart=$1 tag=$2; shift 2
+  # Pin the image ID as a pod annotation so a rebuilt image under the same tag
+  # rolls the pods (helm alone sees no template change).
+  local iid; iid=$(docker image inspect "$IMAGE_REPO:$tag" --format '{{.Id}}' 2>/dev/null | cut -c8-19)
   h upgrade --install "$RELEASE" "$chart" -n "$NS_OP" --create-namespace \
     --set image.repository="$IMAGE_REPO" --set image.tag="$tag" --set image.pullPolicy=IfNotPresent \
+    --set "podAnnotations.e2e/image=$iid" \
     --set logging.level="info,kafka_backup_operator=debug" \
     --set 'extraVolumes[0].name=backups' --set 'extraVolumes[0].persistentVolumeClaim.claimName=kafka-backup-storage' \
     --set 'extraVolumeMounts[0].name=backups' --set 'extraVolumeMounts[0].mountPath=/data/kafka-backup-storage' \
