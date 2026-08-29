@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.2 - 2026-08-29
+
+### Fixed
+
+- A record header whose value is **null** is now backed up and restored as
+  null instead of an empty value
+  ([kafka-backup#155](https://github.com/osodevops/kafka-backup/issues/155)).
+  Kafka distinguishes the two and consumers branch on the difference; the
+  loss happened on the backup path, so archives written by earlier versions
+  store such headers as empty and must be re-taken where the distinction
+  matters. Fixed by updating `kafka-backup-core` from 0.17.4 to 0.19.0.
+
+### Changed
+
+- The `KafkaBackup` CRD description for `includeOffsetHeaders` now states
+  its default (`true`) and what the option adds to every archived record
+  ([kafka-backup#154](https://github.com/osodevops/kafka-backup/issues/154)).
+  Core 0.19.0 also adds `restore.strip_offset_headers`; the operator does
+  not expose it yet and keeps restoring with its existing header behaviour.
+
 ## 1.2.1 - 2026-08-20
 
 ### Fixed

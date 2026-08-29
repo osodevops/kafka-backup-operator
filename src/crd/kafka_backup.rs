@@ -57,7 +57,9 @@ pub struct KafkaBackupSpec {
     #[serde(default)]
     pub stop_at_current_offsets: bool,
 
-    /// Include original offset headers for three-phase restore support
+    /// Add `x-original-offset` / `x-original-timestamp` headers to every archived record
+    /// (Phase 1 of the three-phase restore). Default: true. Set to false for an archive
+    /// whose records carry only their original headers.
     #[serde(default = "default_true")]
     pub include_offset_headers: bool,
 

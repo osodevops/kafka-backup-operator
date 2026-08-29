@@ -434,6 +434,9 @@ fn to_core_restore_options(resolved: &ResolvedRestoreConfig) -> RestoreOptions {
         consumer_group_strategy,
         dry_run: resolved.dry_run,
         include_original_offset_header: true,
+        // Operator restores keep the archive's offset headers; the restore-side
+        // ones above are re-injected, so the mapping is intact either way.
+        strip_offset_headers: false,
         rate_limit_records_per_sec,
         rate_limit_bytes_per_sec,
         max_concurrent_partitions,
