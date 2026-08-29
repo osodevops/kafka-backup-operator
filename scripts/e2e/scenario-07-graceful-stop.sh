@@ -3,14 +3,15 @@
 # finalizes: manifest + offsets) and the lease is released only afterwards.
 export SCEN=07-graceful-stop; source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 operator_uninstall; delete_cr
-# A long backup: 1.5M more records (~300 MB) so a run takes well over a minute.
-k -n "$NS_KAFKA" get job seed-big >/dev/null 2>&1 || sed -e 's/name: seed-records/name: seed-big/' -e 's/value: "50000"/value: "1500000"/' "$ROOT/manifests/e2e/producer-job.yaml" | k apply -f - >/dev/null
+# A long backup on its own topic: ~1.5M perf-test records (~300 MB) compressed
+# with zstd level 19 by a single worker keeps one run going for minutes.
+# (The CR's rateLimiting.recordsPerSec is not mapped to the backup engine — #81.)
+k apply -f "$ROOT/manifests/e2e/kafka-big-topic.yaml" >/dev/null
+k -n "$NS_KAFKA" wait kafkatopic/backup-test-big --for=condition=Ready --timeout=3m >/dev/null
+k -n "$NS_KAFKA" get job seed-big >/dev/null 2>&1 || sed -e 's/name: seed-records/name: seed-big/' -e 's/value: "50000"/value: "1500000"/' -e 's/--topic backup-test-topic/--topic backup-test-big/' "$ROOT/manifests/e2e/producer-job.yaml" | k apply -f - >/dev/null
 k -n "$NS_KAFKA" wait job/seed-big --for=condition=complete --timeout=15m >/dev/null
 operator_install "$CHART_FIX" fix
-# Slow the engine down: single partition worker + zstd level 19 on ~300 MB of
-# incompressible payload keeps one run going for well over a minute. (The CR's
-# rateLimiting.recordsPerSec is not mapped to the backup engine — noted in the PR.)
-sed -e 's/schedule: .*/schedule: "0 *\/2 * * * * *"/' -e 's/compressionLevel: 3/compressionLevel: 19/' -e 's/maxConcurrentPartitions: 2/maxConcurrentPartitions: 1/' "$ROOT/manifests/e2e/kafkabackup-sched.yaml" | k apply -f - >/dev/null
+sed -e 's/schedule: .*/schedule: "0 *\/2 * * * * *"/' -e 's/compressionLevel: 3/compressionLevel: 19/' -e 's/maxConcurrentPartitions: 2/maxConcurrentPartitions: 1/' -e 's/- backup-test-topic/- backup-test-big/' "$ROOT/manifests/e2e/kafkabackup-sched.yaml" | k apply -f - >/dev/null
 wait_for 150 phase_is Running >/dev/null || fail "backup did not start ($(backup_status))"
 sleep 15; phase_is Running || fail "backup finished too quickly to test a graceful stop ($(backup_status))"
 leader=$(lease_holder); LEASELOG=$(watch_lease_bg "$EVID/$SCEN/lease.jsonl"); sleep 1
