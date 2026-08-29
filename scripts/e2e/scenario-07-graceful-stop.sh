@@ -8,8 +8,8 @@ operator_uninstall; delete_cr
 # (The CR's rateLimiting.recordsPerSec is not mapped to the backup engine — #81.)
 k apply -f "$ROOT/manifests/e2e/kafka-big-topic.yaml" >/dev/null
 k -n "$NS_KAFKA" wait kafkatopic/backup-test-big --for=condition=Ready --timeout=3m >/dev/null
-k -n "$NS_KAFKA" get job seed-big >/dev/null 2>&1 || sed -e 's/name: seed-records/name: seed-big/' -e 's/value: "50000"/value: "1500000"/' -e 's/--topic backup-test-topic/--topic backup-test-big/' "$ROOT/manifests/e2e/producer-job.yaml" | k apply -f - >/dev/null
-k -n "$NS_KAFKA" wait job/seed-big --for=condition=complete --timeout=15m >/dev/null
+k -n "$NS_KAFKA" get job seed-backup-test-big >/dev/null 2>&1 || sed -e 's/name: seed-records/name: seed-backup-test-big/' -e 's/value: "50000"/value: "1500000"/' -e 's/--topic backup-test-topic/--topic backup-test-big/' "$ROOT/manifests/e2e/producer-job.yaml" | k apply -f - >/dev/null
+k -n "$NS_KAFKA" wait job/seed-backup-test-big --for=condition=complete --timeout=15m >/dev/null
 operator_install "$CHART_FIX" fix
 sed -e 's/schedule: .*/schedule: "0 *\/2 * * * * *"/' -e 's/compressionLevel: 3/compressionLevel: 19/' -e 's/maxConcurrentPartitions: 2/maxConcurrentPartitions: 1/' -e 's/- backup-test-topic/- backup-test-big/' "$ROOT/manifests/e2e/kafkabackup-sched.yaml" | k apply -f - >/dev/null
 wait_for 150 phase_is Running >/dev/null || fail "backup did not start ($(backup_status))"
