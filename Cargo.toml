@@ -56,6 +56,7 @@ http-body-util = "0.1"
 
 # Lazy static for metrics
 lazy_static = "1.4"
+libc = "0.2"
 
 [[bin]]
 name = "kafka-backup-operator"

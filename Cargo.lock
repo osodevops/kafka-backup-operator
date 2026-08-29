@@ -1367,6 +1367,7 @@ dependencies = [
  "kube",
  "kube-runtime",
  "lazy_static",
+ "libc",
  "prometheus",
  "reqwest",
  "schemars",

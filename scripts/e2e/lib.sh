@@ -82,7 +82,14 @@ operator_install() { local chart=$1 tag=$2; shift 2
   log "installed $RELEASE chart=$(basename "$(dirname "$chart")")/$(basename "$chart") tag=$tag args=[$*] strategy=$(strategy_type)"; }
 operator_uninstall() { h uninstall "$RELEASE" -n "$NS_OP" --ignore-not-found --wait >/dev/null 2>&1 || true; k -n "$NS_OP" delete lease "${RELEASE}-leader" --ignore-not-found >/dev/null 2>&1 || true; }
 apply_cr() { k apply -f "$ROOT/manifests/e2e/kafkabackup-sched.yaml" >/dev/null; }
-delete_cr() { k -n "$NS_OP" delete kafkabackup sched --ignore-not-found --wait=false >/dev/null 2>&1 || true; }
+delete_cr() {
+  k -n "$NS_OP" delete kafkabackup sched --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  # The finalizer is removed by the operator after any in-flight reconcile
+  # (a long backup) — do not let a test wait on that.
+  for _ in $(seq 1 10); do k -n "$NS_OP" get kafkabackup sched >/dev/null 2>&1 || return 0; sleep 1; done
+  k -n "$NS_OP" patch kafkabackup sched --type=merge -p '{"metadata":{"finalizers":null}}' >/dev/null 2>&1 || true
+  k -n "$NS_OP" wait kafkabackup sched --for=delete --timeout=30s >/dev/null 2>&1 || true
+}
 touch_cr() { k -n "$NS_OP" annotate kafkabackup sched e2e/touch="$(date +%s%N)" --overwrite >/dev/null; }
 # Tick bucket (10s) of a backup id or an ISO timestamp, for duplicate detection.
 tick_of() { python3 - "$1" <<'PY'

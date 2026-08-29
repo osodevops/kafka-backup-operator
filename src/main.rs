@@ -137,12 +137,15 @@ async fn main() -> anyhow::Result<()> {
     metrics_handle.abort();
     info!("OSO Kafka Backup Operator stopped");
     // Everything orderly is done: the controllers have drained, the engine has
-    // finalized and the lease is released. Do not wait for the runtime to
-    // tear down abandoned blocking work (e.g. a compression worker of the
-    // stopped engine) — that is what used to exhaust the termination grace
-    // period and get the pod SIGKILLed. Flush the logs and leave.
+    // finalized and the lease is released. A stopped engine's abandoned
+    // partition task can still be compressing on the runtime worker, and
+    // waiting for it (runtime teardown, or even libc `exit` handlers) used to
+    // exhaust the termination grace period and get the pod SIGKILLed. Flush
+    // the logs and leave immediately.
     drop(_log_guard);
-    std::process::exit(0);
+    // SAFETY: `_exit` terminates the process without running destructors or
+    // exit handlers; nothing below needs them and all durable work is done.
+    unsafe { libc::_exit(0) }
 }
 
 /// Run all controllers until the shared shutdown future resolves and every
