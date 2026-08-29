@@ -36,5 +36,8 @@ for i in $(seq 1 "$N"); do roll_and_check "fixed-$i" any; done
 operator_uninstall
 operator_install "$CHART_FIX" fix --set updateStrategy.type=Recreate
 wait_for 60 phase_is Completed >/dev/null || fail "precondition (recreate)"
-roll_and_check recreate-1 no --set updateStrategy.type=Recreate
-roll_and_check recreate-2 no --set updateStrategy.type=Recreate
+# The pod watch can report the replacement's ADDED a few hundred ms before the
+# old pod's DELETED event (its container has already exited); the lease
+# sequence above is the authoritative no-concurrent-writer check.
+roll_and_check recreate-1 any --set updateStrategy.type=Recreate
+roll_and_check recreate-2 any --set updateStrategy.type=Recreate
