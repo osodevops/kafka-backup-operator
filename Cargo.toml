@@ -1,6 +1,6 @@
 [package]
 name = "kafka-backup-operator"
-version = "1.2.2"
+version = "1.2.3"
 edition = "2021"
 authors = ["OSO DevOps <dev@oso.sh>"]
 description = "Kubernetes Operator for OSO Kafka Backup"
@@ -37,6 +37,7 @@ cron = "0.12"
 # Logging & Tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
 
 # Error handling
 anyhow = "1.0"
@@ -66,6 +67,8 @@ path = "src/bin/crdgen.rs"
 
 [dev-dependencies]
 tokio-test = "0.4"
+tower-test = "0.4"
+http = "1"
 tempfile = "3.13"
 
 [profile.release]

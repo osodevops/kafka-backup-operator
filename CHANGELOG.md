@@ -1,5 +1,63 @@
 # Changelog
 
+## 1.2.3 - 2026-08-29
+
+### Fixed
+
+- Two operator pods can no longer run the same `KafkaBackup` at once
+  ([#79](https://github.com/osodevops/kafka-backup-operator/issues/79)).
+  The Deployment had no update strategy, so during `helm upgrade` — and on
+  node drain, eviction or preemption — the old and the new pod ran side by
+  side; each decided schedules from its own cache and its own in-process
+  duplicate-fire guard, so a cron tick due in the overlap could execute in
+  both (two engines writing the same `backup_id`), and a backup already
+  running in the old pod was cut off when it was asked to stop.
+  Three layers now prevent and heal this: the chart rolls out with
+  `maxSurge: 0` / `maxUnavailable: 1` (`updateStrategy` value; the outgoing
+  pod is deleted before its replacement is created), the operator runs
+  leader election so only the lease holder runs the controllers, and a
+  running backup or restore is asked to stop gracefully on SIGTERM — it
+  checkpoints, syncs its offset database and writes its manifest — before
+  the lease is released to the successor.
+
+### Added
+
+- Lease-based leader election (`coordination.k8s.io/v1`, client-go
+  semantics): the chart's `leaderElection.*` values and the
+  `LEADER_ELECTION_ENABLED` / `LEADER_ELECTION_LEASE_DURATION` /
+  `LEADER_ELECTION_RENEW_DEADLINE` / `LEADER_ELECTION_RETRY_PERIOD` /
+  `LEADER_ELECTION_LEASE_NAME` / `OPERATOR_NAMESPACE` environment variables
+  were rendered but never read; they are honoured now. Only the holder of the
+  `<release>-leader` Lease runs the controllers; other replicas stand by, so
+  `replicaCount: 2` gives a warm standby that takes over within seconds of the
+  leader stopping. Lease expiry is judged on the observing pod's own clock and
+  every lease request is bounded to half the renew deadline.
+- `/readyz` reports `leader` or `standby` (200) once the replica has observed
+  the lease and `leader election pending` (503) before, so an install whose
+  ServiceAccount lacks the leases rule fails loudly. With leader election
+  disabled it is ready immediately, as before.
+- `kafka_backup_operator_leader{identity}` gauge (1 on the leader).
+- `terminationGracePeriodSeconds` value (default 60, was a hard-coded 30) so a
+  stopping backup has time to finalize.
+- `scripts/e2e/` + `manifests/e2e/`: minikube-based end-to-end scenarios for
+  operator upgrades and leader election (not run in CI).
+
+### Changed
+
+- `leaderElection.enabled` now defaults to `true` (the chart renders the
+  `coordination.k8s.io/leases` ClusterRole rule accordingly). Set it to
+  `false` to opt out; the `maxSurge: 0` rollout still covers plain upgrades.
+- When the leader cannot renew its lease within `renewDeadline`, or finds the
+  lease held by another replica, the process exits non-zero and the kubelet
+  restarts it as a candidate.
+- Shutdown is sequenced: controllers drain (a running backup finalizes), the
+  lease is released, then the process exits — instead of dropping everything
+  on the first signal.
+- Logs are written through a lossy non-blocking writer: with a CPU limit the
+  runtime has a single worker thread, and a blocking write to a backed-up
+  container stdout used to freeze probes, lease renewals and the running
+  backup together.
+
 ## 1.2.2 - 2026-08-29
 
 ### Fixed
