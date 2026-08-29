@@ -119,7 +119,7 @@ spec:
                 type: boolean
               includeOffsetHeaders:
                 default: true
-                description: Include original offset headers for three-phase restore support
+                description: 'Add `x-original-offset` / `x-original-timestamp` headers to every archived record (Phase 1 of the three-phase restore). Default: true. Set to false for an archive whose records carry only their original headers.'
                 type: boolean
               kafkaCluster:
                 description: Kafka cluster connection configuration
