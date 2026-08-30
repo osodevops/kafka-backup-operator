@@ -6,6 +6,8 @@
 
 A Kubernetes operator for automated Kafka backup and disaster recovery. Built with Rust using [kube-rs](https://kube.rs/) for high performance and reliability.
 
+**Current release: v1.3.0** (embeds `kafka-backup-core` v0.19.2). See [Upgrade Notes](#upgrade-notes).
+
 ## Features
 
 - **Scheduled Backups** - Cron-based automatic backups for point-in-time backup runs
@@ -84,6 +86,24 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 
 ## Upgrade Notes
 
+### 1.3.0
+
+Uses `kafka-backup-core` `v0.19.2`.
+
+- `KafkaRestore` now exposes `includeOriginalOffsetHeader` (default `true`, unchanged behaviour) and
+  `stripOffsetHeaders` (default `false`). Set `stripOffsetHeaders: true` and
+  `includeOriginalOffsetHeader: false` for a restore whose records carry exactly the headers the
+  source records had; `KafkaBackup.spec.includeOffsetHeaders` (default `true`) is what adds
+  `x-original-offset` / `x-original-timestamp` to every archived record in the first place.
+
+### 1.2.2
+
+Uses `kafka-backup-core` `v0.19.0`.
+
+- A record header whose value is null is now archived and restored as null instead of an empty value
+  ([kafka-backup#155](https://github.com/osodevops/kafka-backup/issues/155)). Archives taken by earlier
+  operator versions store such headers as empty and must be re-taken where the distinction matters.
+
 ### 1.0.0
 
 This release aligns the operator CRDs and adapters with `kafka-backup-core` `v0.12.0`.
@@ -130,7 +150,7 @@ spec:
   compression: zstd
   compressionLevel: 3
   stopAtCurrentOffsets: true
-  includeOffsetHeaders: true
+  includeOffsetHeaders: true   # default; adds x-original-offset / x-original-timestamp to every archived record
   sourceClusterId: production
   consumerGroupSnapshot: true
   checkpoint:
@@ -233,6 +253,11 @@ spec:
   produceAcks: -1
   produceTimeoutMs: 30000
   autoConsumerGroups: true
+  # Header options (1.3.0+): default true / false. For a header-for-header identical
+  # restore of an archive taken with includeOffsetHeaders (the backup default), use
+  # includeOriginalOffsetHeader: false + stripOffsetHeaders: true.
+  includeOriginalOffsetHeader: true
+  stripOffsetHeaders: false
   # Required when restoring all topics or explicit topics back to the same names.
   # Keep false when using topicMapping to restore into separate target topics.
   purgeTopics: false

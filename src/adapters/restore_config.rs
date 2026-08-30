@@ -58,6 +58,10 @@ pub struct ResolvedRestoreConfig {
     pub create_topics: bool,
     /// Default replication factor for auto-created topics
     pub default_replication_factor: Option<i16>,
+    /// Add x-original-* / x-source-partition headers to every restored record
+    pub include_original_offset_header: bool,
+    /// Strip the headers kafka-backup added at backup time before producing
+    pub strip_offset_headers: bool,
 }
 
 /// Resolved backup source
@@ -183,6 +187,8 @@ pub async fn build_restore_config(
             .map(build_offset_reset_config),
         create_topics: restore.spec.create_topics,
         default_replication_factor: restore.spec.default_replication_factor,
+        include_original_offset_header: restore.spec.include_original_offset_header,
+        strip_offset_headers: restore.spec.strip_offset_headers,
     })
 }
 

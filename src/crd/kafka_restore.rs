@@ -102,6 +102,19 @@ pub struct KafkaRestoreSpec {
     /// If not specified, the broker's default replication factor is used.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_replication_factor: Option<i16>,
+
+    /// Add `x-original-offset`, `x-original-timestamp` and `x-source-partition` headers to
+    /// every restored record (also implied by header-based consumer offset recovery).
+    /// Default: true — the operator has always done this; note the kafka-backup CLI default is false.
+    #[serde(default = "default_true")]
+    pub include_original_offset_header: bool,
+
+    /// Remove the headers kafka-backup added at backup time (`x-original-offset`,
+    /// `x-original-timestamp`, `x-source-cluster`, `x-source-partition`) from archived records
+    /// before producing, so restored records match the source header-for-header
+    /// (kafka-backup-core >= 0.19.0). Default: false.
+    #[serde(default)]
+    pub strip_offset_headers: bool,
 }
 
 fn default_produce_batch_size() -> usize {
