@@ -12,7 +12,7 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 # Core backup library
-kafka-backup-core = "0.19.0"
+kafka-backup-core = "0.19.2"
 
 # Kubernetes
 kube = { version = "0.95", features = ["runtime", "derive", "client"] }
