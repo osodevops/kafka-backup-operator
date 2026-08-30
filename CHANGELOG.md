@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.3.0 - 2026-08-30
+
+### Added
+
+- `KafkaRestore.spec.includeOriginalOffsetHeader` (default `true`, the behaviour
+  the operator always had) and `KafkaRestore.spec.stripOffsetHeaders` (default
+  `false`). The latter removes the `x-original-*` / `x-source-*` headers
+  kafka-backup added at backup time so restored records match the source
+  header-for-header
+  ([kafka-backup#154](https://github.com/osodevops/kafka-backup/issues/154)).
+  Set `includeOriginalOffsetHeader: false` together with it for a verbatim
+  restore. Header-based consumer offset recovery re-injects the restore-side
+  headers regardless.
+
+### Changed
+
+- `kafka-backup-core` 0.19.0 → 0.19.2: compressed legacy (pre-binary-format)
+  JSON segments are readable again on restore.
 ## 1.2.3 - 2026-08-29
 
 ### Fixed

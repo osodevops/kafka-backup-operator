@@ -540,6 +540,8 @@ fn valid_restore_spec() -> KafkaRestoreSpec {
         auto_consumer_groups: false,
         create_topics: false,
         default_replication_factor: None,
+        include_original_offset_header: true,
+        strip_offset_headers: false,
     }
 }
 

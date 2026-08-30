@@ -1,6 +1,6 @@
 [package]
 name = "kafka-backup-operator"
-version = "1.2.3"
+version = "1.3.0"
 edition = "2021"
 authors = ["OSO DevOps <dev@oso.sh>"]
 description = "Kubernetes Operator for OSO Kafka Backup"
@@ -12,7 +12,7 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 # Core backup library
-kafka-backup-core = "0.19.0"
+kafka-backup-core = "0.19.2"
 
 # Kubernetes
 kube = { version = "0.95", features = ["runtime", "derive", "client"] }

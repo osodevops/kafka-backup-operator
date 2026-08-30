@@ -1005,6 +1005,10 @@ spec:
                 default: false
                 description: Dry run mode (validate without executing)
                 type: boolean
+              includeOriginalOffsetHeader:
+                default: true
+                description: 'Add `x-original-offset`, `x-original-timestamp` and `x-source-partition` headers to every restored record (also implied by header-based consumer offset recovery). Default: true — the operator has always done this; note the kafka-backup CLI default is false.'
+                type: boolean
               kafkaCluster:
                 description: Target Kafka cluster (can differ from backup source)
                 properties:
@@ -1255,6 +1259,10 @@ spec:
                     - pvcName
                     type: object
                 type: object
+              stripOffsetHeaders:
+                default: false
+                description: 'Remove the headers kafka-backup added at backup time (`x-original-offset`, `x-original-timestamp`, `x-source-cluster`, `x-source-partition`) from archived records before producing, so restored records match the source header-for-header (kafka-backup-core >= 0.19.0). Default: false.'
+                type: boolean
               topicMapping:
                 additionalProperties:
                   type: string
