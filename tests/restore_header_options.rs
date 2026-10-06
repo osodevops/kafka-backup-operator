@@ -14,6 +14,7 @@ use kafka_backup_operator::crd::{
 };
 
 fn test_client() -> kube::Client {
+    kafka_backup_operator::install_crypto_provider();
     kube::Client::try_from(kube::Config::new(
         "http://127.0.0.1".parse().expect("valid URL"),
     ))
@@ -133,6 +134,7 @@ fn struct_literal_fields_are_present() {
         default_replication_factor: None,
         include_original_offset_header: false,
         strip_offset_headers: true,
+        header_preflight: Default::default(),
     };
     assert!(spec.strip_offset_headers && !spec.include_original_offset_header);
 }

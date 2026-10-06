@@ -39,6 +39,7 @@ fn restore_spec() -> KafkaRestoreSpec {
         default_replication_factor: None,
         include_original_offset_header: true,
         strip_offset_headers: false,
+        header_preflight: Default::default(),
     }
 }
 

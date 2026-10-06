@@ -5,10 +5,11 @@
 use std::path::PathBuf;
 
 use kafka_backup_core::config::{
-    BackupOptions, CompressionType, Config, ConnectionConfig, KafkaConfig, MetricsConfig, Mode,
-    OffsetStorageBackend, OffsetStorageConfig, OffsetStrategy, RepartitioningStrategy,
-    RestoreOptions, SaslMechanism, SecurityConfig, SecurityProtocol, TopicRepartitioning,
-    TopicSelection,
+    BackupOptions, CircuitBreakerSettings, CompressionType, Config, ConnectionConfig,
+    ExistingTopicConfigPolicy, HeaderPreflightMode, KafkaConfig, MetricsConfig, Mode,
+    OffsetStorageBackend, OffsetStorageConfig, OffsetStrategy, OnMissingTopic,
+    RepartitioningStrategy, RestoreOptions, SaslMechanism, SecurityConfig, SecurityProtocol,
+    TopicRepartitioning, TopicSelection,
 };
 use kafka_backup_core::storage::StorageBackendConfig;
 use kafka_backup_core::validation::{
@@ -20,11 +21,14 @@ use kafka_backup_core::validation::{
     ValidationConfig as CoreValidationConfig, WebhookConfig as CoreWebhookConfig,
 };
 
-use super::backup_config::{ResolvedBackupConfig, ResolvedKafkaConfig, ResolvedMetricsConfig};
+use super::backup_config::{
+    ResolvedBackupConfig, ResolvedCircuitBreakerConfig, ResolvedKafkaConfig, ResolvedMetricsConfig,
+};
 use super::restore_config::ResolvedRestoreConfig;
 use super::storage_config::ResolvedStorage;
 use super::tls_files::TlsFileManager;
 use super::validation_config::{ResolvedEvidenceConfig, ResolvedValidationConfig};
+use crate::crd::{HeaderPreflightPolicy, OnMissingTopicPolicy};
 
 /// Convert resolved backup configuration to kafka-backup-core Config
 pub fn to_core_backup_config(
@@ -216,7 +220,11 @@ pub fn to_core_kafka_config_for_validation(resolved: &ResolvedKafkaConfig) -> Ka
     to_core_kafka_config(resolved, &[])
 }
 
-fn to_core_storage_config(resolved: &ResolvedStorage) -> StorageBackendConfig {
+/// Convert resolved storage configuration to kafka-backup-core StorageBackendConfig.
+///
+/// Everything that talks to backup storage (backup, restore, validation and
+/// retention) goes through here so they address the bucket the same way.
+pub fn to_core_storage_config(resolved: &ResolvedStorage) -> StorageBackendConfig {
     match resolved {
         ResolvedStorage::Local(local) => StorageBackendConfig::Filesystem {
             path: PathBuf::from(&local.path),
@@ -314,9 +322,13 @@ fn to_core_backup_options(resolved: &ResolvedBackupConfig) -> BackupOptions {
         _ => CompressionType::Zstd,
     };
 
-    let (checkpoint_interval_secs, sync_interval_secs) = match &resolved.checkpoint {
-        Some(cp) if cp.enabled => (cp.interval_secs, cp.interval_secs * 2),
-        _ => (5, 30),
+    // How often the manifest and the offset database are synced to storage
+    // while a backup runs. Core's `checkpoint_interval_secs` has had no effect
+    // since 0.22 (offsets are checkpointed every cycle) and logs a deprecation
+    // warning when changed, so it stays at its default.
+    let sync_interval_secs = match &resolved.checkpoint {
+        Some(cp) if cp.enabled => cp.interval_secs * 2,
+        _ => 30,
     };
 
     let max_concurrent_partitions = resolved
@@ -325,6 +337,13 @@ fn to_core_backup_options(resolved: &ResolvedBackupConfig) -> BackupOptions {
         .map(|rl| rl.max_concurrent_partitions)
         .unwrap_or(8);
 
+    let on_missing_topic = match resolved.backup_options.on_missing_topic {
+        OnMissingTopicPolicy::Fail => OnMissingTopic::Fail,
+        OnMissingTopicPolicy::Warn => OnMissingTopic::Warn,
+    };
+
+    // Every field is listed so a new core option is a compile error that
+    // forces a decision here rather than a silently adopted default.
     BackupOptions {
         segment_max_bytes: resolved.backup_options.segment_max_bytes,
         segment_max_interval_ms: resolved.backup_options.segment_max_interval_ms,
@@ -334,7 +353,8 @@ fn to_core_backup_options(resolved: &ResolvedBackupConfig) -> BackupOptions {
         continuous: resolved.backup_options.continuous,
         include_internal_topics: false,
         internal_topics: vec![],
-        checkpoint_interval_secs,
+        on_missing_topic,
+        checkpoint_interval_secs: BackupOptions::default().checkpoint_interval_secs,
         sync_interval_secs,
         include_offset_headers: resolved.backup_options.include_offset_headers,
         source_cluster_id: resolved.backup_options.source_cluster_id.clone(),
@@ -344,6 +364,31 @@ fn to_core_backup_options(resolved: &ResolvedBackupConfig) -> BackupOptions {
         consumer_group_snapshot: resolved.backup_options.consumer_group_snapshot,
         fetch_max_bytes: None,
         segment_max_records: None,
+        // Topic-level config overrides are captured into the manifest so a
+        // restore can re-apply them; a broker that refuses DescribeConfigs
+        // only produces a warning.
+        capture_topic_configs: true,
+        require_topic_configs: false,
+        // The operator prunes whole backup sets itself (`spec.retention`);
+        // core's in-backup segment pruning stays off.
+        retention: None,
+        circuit_breaker: to_core_circuit_breaker(resolved.circuit_breaker.as_ref()),
+    }
+}
+
+/// Convert the CRD circuit breaker to core settings (core defaults when unset).
+/// `operationTimeoutMs` has no core counterpart.
+fn to_core_circuit_breaker(
+    resolved: Option<&ResolvedCircuitBreakerConfig>,
+) -> CircuitBreakerSettings {
+    match resolved {
+        Some(cb) => CircuitBreakerSettings {
+            enabled: cb.enabled,
+            failure_threshold: cb.failure_threshold,
+            reset_timeout_ms: cb.reset_timeout_secs.saturating_mul(1000),
+            success_threshold: cb.success_threshold,
+        },
+        None => CircuitBreakerSettings::default(),
     }
 }
 
@@ -451,53 +496,50 @@ fn to_core_restore_options(resolved: &ResolvedRestoreConfig) -> RestoreOptions {
         repartitioning,
         purge_topics: resolved.purge_topics,
         auto_consumer_groups: resolved.auto_consumer_groups,
+        // Re-apply captured topic configs to topics the restore creates;
+        // existing topics are only checked for drift.
+        restore_topic_configs: true,
+        existing_topic_config_policy: ExistingTopicConfigPolicy::ValidateOnly,
+        topic_config_overrides: Default::default(),
+        rewrite_schema_ids: false,
+        schema_id_mapping: Default::default(),
+        header_preflight: match resolved.header_preflight {
+            HeaderPreflightPolicy::Auto => HeaderPreflightMode::Auto,
+            HeaderPreflightPolicy::Full => HeaderPreflightMode::Full,
+            HeaderPreflightPolicy::Skip => HeaderPreflightMode::Skip,
+        },
+        header_preflight_external: false,
+        dry_run_check_segments: false,
+        record_filter: None,
+        record_filter_fingerprint: None,
+        circuit_breaker: to_core_circuit_breaker(resolved.circuit_breaker.as_ref()),
     }
 }
 
-/// Build offset storage configuration for tracking backup progress
-/// This ensures the SQLite database is created in a writable location within the backup storage
+/// Build offset storage configuration for tracking backup progress.
+///
+/// Only the local SQLite path is chosen here. Core stores the remote copy at
+/// `{backup_id}/offsets.db` under the storage prefix (and always has), and
+/// syncs it on `backup.sync_interval_secs`; `s3_key` is ignored since core 0.22.
 fn build_offset_storage_config(
     storage: &ResolvedStorage,
     backup_id: &str,
 ) -> Option<OffsetStorageConfig> {
-    match storage {
-        ResolvedStorage::Local(local) => {
-            // Create offset database path inside the backup storage directory
-            let db_path = PathBuf::from(&local.path).join(format!("{}-offsets.db", backup_id));
-            Some(OffsetStorageConfig {
-                backend: OffsetStorageBackend::Sqlite,
-                db_path,
-                s3_key: None,
-                sync_interval_secs: 60,
-            })
+    let db_dir = match storage {
+        // Inside the backup storage directory
+        ResolvedStorage::Local(local) => PathBuf::from(&local.path),
+        // Remote storage: a writable local path, synced to the backend by core
+        ResolvedStorage::S3(_) | ResolvedStorage::Azure(_) | ResolvedStorage::Gcs(_) => {
+            PathBuf::from("/tmp")
         }
-        ResolvedStorage::S3(s3) => {
-            // For S3, use a local temp path but sync to S3
-            let db_path = PathBuf::from("/tmp").join(format!("{}-offsets.db", backup_id));
-            let s3_key = s3
-                .prefix
-                .as_ref()
-                .map(|p| format!("{}/{}/offsets.db", p, backup_id))
-                .or_else(|| Some(format!("{}/offsets.db", backup_id)));
-            Some(OffsetStorageConfig {
-                backend: OffsetStorageBackend::Sqlite,
-                db_path,
-                s3_key,
-                sync_interval_secs: 60,
-            })
-        }
-        // Azure and GCS would need similar handling
-        ResolvedStorage::Azure(_) | ResolvedStorage::Gcs(_) => {
-            // Use local temp path for now
-            let db_path = PathBuf::from("/tmp").join(format!("{}-offsets.db", backup_id));
-            Some(OffsetStorageConfig {
-                backend: OffsetStorageBackend::Sqlite,
-                db_path,
-                s3_key: None,
-                sync_interval_secs: 60,
-            })
-        }
-    }
+    };
+
+    Some(OffsetStorageConfig {
+        backend: OffsetStorageBackend::Sqlite,
+        db_path: db_dir.join(format!("{}-offsets.db", backup_id)),
+        s3_key: None,
+        sync_interval_secs: None,
+    })
 }
 
 /// Get storage config for snapshot operations

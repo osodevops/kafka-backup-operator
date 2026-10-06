@@ -36,6 +36,8 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting OSO Kafka Backup Operator");
 
+    kafka_backup_operator::install_crypto_provider();
+
     // Create Kubernetes client
     let client = Client::try_default().await?;
     info!("Connected to Kubernetes API server");

@@ -1,12 +1,12 @@
 # Kafka Backup Operator
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-1.89%2B-orange.svg)](https://www.rust-lang.org/)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-1.26%2B-326CE5.svg)](https://kubernetes.io/)
 
 A Kubernetes operator for automated Kafka backup and disaster recovery. Built with Rust using [kube-rs](https://kube.rs/) for high performance and reliability.
 
-**Current release: v1.3.0** (embeds `kafka-backup-core` v0.19.2). See [Upgrade Notes](#upgrade-notes).
+**Current release: v1.4.0** (embeds `kafka-backup-core` v0.23.0). See [Upgrade Notes](#upgrade-notes).
 
 ## Features
 
@@ -17,7 +17,7 @@ A Kubernetes operator for automated Kafka backup and disaster recovery. Built wi
 - **Compression** - LZ4 and Zstd compression support with configurable levels
 - **Checkpointing** - Resumable backups that survive pod restarts
 - **Rate Limiting** - Control backup/restore throughput to minimize cluster impact
-- **Circuit Breaker** - Automatic failure detection and recovery
+- **Circuit Breaker** - Kafka failure tracking with tunable thresholds (advisory)
 - **Topic Mapping** - Restore to different topic names or partitions
 - **Consumer Offset Management** - Reset and rollback consumer group offsets
 - **Validation Evidence** - Validate backups and generate compliance evidence reports
@@ -85,6 +85,31 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 | `KafkaBackupValidation` | `kbv` | Validate backups and produce evidence reports |
 
 ## Upgrade Notes
+
+### 1.4.0
+
+Uses `kafka-backup-core` `v0.23.0` (from `v0.19.2`). Apply the updated CRDs before upgrading
+(`kubectl apply --server-side -f deploy/crds/all.yaml`; Helm does not upgrade CRDs).
+
+- `KafkaBackup.spec.onMissingTopic: fail | warn` (default `fail`, unchanged behaviour). With `warn`, a
+  literal topic that does not exist is skipped, recorded in the manifest's `missing_topics` and reported
+  by the `kafka_backup_missing_topics` gauge; the rest of the topics are backed up.
+- `KafkaRestore.spec.headerPreflight: auto | full | skip` (default `auto`). A restore that recovers
+  consumer offsets (`offsetReset` with a non-manual strategy, or `autoConsumerGroups`) now scans the
+  backup for the `x-original-offset` / `x-original-timestamp` headers first and **fails before creating
+  topics or producing records** if coverage is incomplete — e.g. a backup taken with
+  `includeOffsetHeaders: false`, `autoConsumerGroups` without a consumer-group snapshot, or an
+  `offsetReset` with no `consumerGroups`. `skip` restores the previous behaviour (errors become warnings).
+- `spec.circuitBreaker` on `KafkaBackup` and `KafkaRestore` now takes effect (it was ignored before).
+  The breaker is advisory — it logs state changes and never blocks requests. `operationTimeoutMs` has
+  no core counterpart and stays ignored.
+- Backups capture topic-level config overrides (e.g. `retention.ms`) into the manifest, and restores
+  apply them to topics they create; existing target topics are only checked for drift.
+- `checkpoint.intervalSecs` keeps its effect — the manifest and offset database sync every
+  `2 x intervalSecs` — but no longer sets core's deprecated `checkpoint_interval_secs`. The offset
+  database stays at `{backup_id}/offsets.db` under the storage prefix, so resumable backups continue
+  across the upgrade.
+- Retention against S3 now addresses the bucket exactly as the backup does (honours `pathStyle`).
 
 ### 1.3.0
 

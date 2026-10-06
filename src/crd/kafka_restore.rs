@@ -63,7 +63,8 @@ pub struct KafkaRestoreSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limiting: Option<RateLimitingSpec>,
 
-    /// Circuit breaker configuration
+    /// Kafka circuit breaker (advisory: logs state changes, never blocks
+    /// requests). Core defaults apply when unset.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub circuit_breaker: Option<CircuitBreakerSpec>,
 
@@ -115,6 +116,28 @@ pub struct KafkaRestoreSpec {
     /// (kafka-backup-core >= 0.19.0). Default: false.
     #[serde(default)]
     pub strip_offset_headers: bool,
+
+    /// Phase 1 header preflight (kafka-backup-core >= 0.20). Before a restore
+    /// that recovers consumer offsets (`offsetReset` or `autoConsumerGroups`)
+    /// touches the target, core scans the backup for the offset-tracking
+    /// headers and fails without writing anything if coverage is incomplete.
+    /// `auto` (default) scans only when offsets are recovered; `full` always
+    /// scans; `skip` never scans and turns preflight errors into warnings.
+    #[serde(default)]
+    pub header_preflight: HeaderPreflightPolicy,
+}
+
+/// Header preflight mode for a restore
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum HeaderPreflightPolicy {
+    /// Scan when consumer offsets are recovered
+    #[default]
+    Auto,
+    /// Always scan
+    Full,
+    /// Never scan
+    Skip,
 }
 
 fn default_produce_batch_size() -> usize {

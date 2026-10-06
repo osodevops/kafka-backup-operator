@@ -30,6 +30,13 @@ pub struct KafkaBackupSpec {
     /// Topics to backup
     pub topics: Vec<String>,
 
+    /// What to do when a literal (non-glob) entry in `topics` does not exist in
+    /// the cluster: `fail` (default) fails the backup; `warn` skips it, records
+    /// it in the manifest's `missing_topics` and the `kafka_backup_missing_topics`
+    /// gauge, and backs up the rest. Globs that match nothing are always skipped.
+    #[serde(default)]
+    pub on_missing_topic: OnMissingTopicPolicy,
+
     /// Storage configuration
     pub storage: StorageSpec,
 
@@ -87,7 +94,8 @@ pub struct KafkaBackupSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limiting: Option<RateLimitingSpec>,
 
-    /// Circuit breaker configuration
+    /// Kafka circuit breaker (advisory: logs state changes, never blocks
+    /// requests). Core defaults apply when unset.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub circuit_breaker: Option<CircuitBreakerSpec>,
 
@@ -102,6 +110,17 @@ pub struct KafkaBackupSpec {
     /// Metrics configuration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metrics: Option<MetricsSpec>,
+}
+
+/// Handling of literal topics that are absent from the source cluster
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OnMissingTopicPolicy {
+    /// Fail the backup
+    #[default]
+    Fail,
+    /// Log a warning, record the topic as missing and continue
+    Warn,
 }
 
 fn default_compression() -> String {
@@ -520,7 +539,10 @@ pub struct CheckpointSpec {
     #[serde(default = "default_true")]
     pub enabled: bool,
 
-    /// Checkpoint interval in seconds
+    /// While a backup runs, its manifest and offset database are synced to
+    /// storage every `2 x intervalSecs` seconds (offsets themselves are
+    /// checkpointed at the end of every backup cycle). Without a checkpoint
+    /// block, or with `enabled: false`, they sync every 30 seconds.
     #[serde(default = "default_checkpoint_interval")]
     pub interval_secs: u64,
 
@@ -570,7 +592,11 @@ fn default_max_concurrent_partitions() -> usize {
     4
 }
 
-/// Circuit breaker configuration
+/// Kafka circuit breaker configuration (honoured since kafka-backup-core 0.23).
+///
+/// Without this block core defaults apply (failure threshold 5, reset timeout
+/// 30s, success threshold 2); the field defaults below only fill in a
+/// partially specified block.
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CircuitBreakerSpec {
@@ -590,7 +616,7 @@ pub struct CircuitBreakerSpec {
     #[serde(default = "default_success_threshold")]
     pub success_threshold: u32,
 
-    /// Operation timeout (milliseconds)
+    /// Not used by kafka-backup-core; retained for backwards compatibility
     #[serde(default = "default_operation_timeout")]
     pub operation_timeout_ms: u64,
 }

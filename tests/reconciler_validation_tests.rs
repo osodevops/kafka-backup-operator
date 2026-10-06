@@ -61,6 +61,7 @@ fn valid_backup_spec() -> KafkaBackupSpec {
     KafkaBackupSpec {
         kafka_cluster: valid_kafka_cluster(),
         topics: vec!["test-topic".to_string()],
+        on_missing_topic: Default::default(),
         storage: valid_pvc_storage(),
         compression: "zstd".to_string(),
         compression_level: 3,
@@ -542,6 +543,7 @@ fn valid_restore_spec() -> KafkaRestoreSpec {
         default_replication_factor: None,
         include_original_offset_header: true,
         strip_offset_headers: false,
+        header_preflight: Default::default(),
     }
 }
 
