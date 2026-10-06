@@ -12,6 +12,18 @@ This directory contains a complete local testing environment for validating the 
 
 ## Quick Start
 
+> **The scripts run `kubectl` and `helm` against your current kubectl context.** `setup.sh` only
+> switches to `minikube` when it has to start the cluster; if minikube is already running and your
+> context points elsewhere (e.g. a production cluster), everything is installed *there*. Check
+> `kubectl config current-context` first, or use a minikube-only kubeconfig for the whole shell,
+> which leaves `~/.kube/config` untouched:
+>
+> ```bash
+> export KUBECONFIG="$HOME/.kube/minikube-only"
+> minikube start          # writes and selects the minikube context in that file
+> ./scripts/setup.sh
+> ```
+
 ### 1. Start the Test Environment
 
 ```bash

@@ -62,7 +62,9 @@ pub struct KafkaOffsetResetSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset_mapping_ref: Option<OffsetMappingRef>,
 
-    /// Snapshot before reset for rollback
+    /// Snapshot the groups' offsets before the reset. The snapshot is taken and
+    /// its ID recorded in `status.snapshotId`, but it is not saved anywhere yet,
+    /// so `KafkaOffsetRollback` cannot restore from it.
     #[serde(default = "default_true")]
     pub snapshot_before_reset: bool,
 }

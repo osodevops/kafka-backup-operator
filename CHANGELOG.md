@@ -1,5 +1,50 @@
 # Changelog
 
+## 1.4.1 - 2026-10-06
+
+### Fixed
+
+- Consumer offsets are reset on the restored topic when a `KafkaRestore` uses
+  `topicMapping` with `offsetReset.consumerGroups`. The groups' committed
+  offsets name the source topic, but the restore keys its offset mapping by the
+  target topic, so Phase 3 skipped every partition (`No target offset mapping
+  … - skipping`) and reset nothing. Fixed in `kafka-backup-core` 0.23.1
+  ([kafka-backup#214](https://github.com/osodevops/kafka-backup/issues/214)).
+- `KafkaOffsetReset` with `resetStrategy: from-mapping` and
+  `offsetMappingRef.restoreName` translates the group's commits through that
+  restore's `topicMapping` / `partitionMapping` the same way; it failed with
+  `No target offsets found in mapping` before. Commits already on a restored
+  topic and repartitioned topics are left unchanged, so a re-run is a no-op.
+- `KafkaOffsetReset` with a `topics` list and `to-earliest` / `to-latest` /
+  `to-offset` / `to-timestamp` reset nothing: the group's offsets were fetched
+  for the named topics without partition indexes, which the broker answers
+  with nothing, and the reset was reported as `No-op: offsets already at
+  target`. The operator now fetches all of the group's committed offsets and
+  filters them by topic.
+- A `KafkaOffsetReset` that references a `KafkaRestore` which is missing or
+  still running waits in `Pending` (requeued every 15s) instead of failing with
+  `does not expose status.offsetMappingPath`; it fails with a clear message if
+  the restore failed. Both resources can now be applied together.
+
+### Changed
+
+- `kafka-backup-core` 0.23.0 → 0.23.1.
+
+### Documentation
+
+- `KafkaRestore.spec.rollback` (`snapshotBeforeRestore`,
+  `autoRollbackOnFailure`) is documented as not implemented yet — it was
+  accepted and logged but never took a snapshot or rolled back; the README
+  example no longer presents it as a safety net.
+  `KafkaOffsetReset.spec.snapshotBeforeReset` is documented accurately: the
+  snapshot is taken and its ID recorded in `status.snapshotId`, but it is not
+  saved, so `KafkaOffsetRollback` cannot restore from it. CRD descriptions
+  only, no schema change.
+- README: `from-mapping` offset reset example, `headerPreflight` /
+  `offsetReset` in the restore example, `onMissingTopic`, the
+  `kafka_backup_missing_topics` metric. minikube README: the scripts act on the
+  current kubectl context.
+
 ## 1.4.0 - 2026-10-06
 
 Builds against `kafka-backup-core` 0.23.0

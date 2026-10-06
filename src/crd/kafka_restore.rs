@@ -55,7 +55,9 @@ pub struct KafkaRestoreSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset_reset: Option<OffsetResetSpec>,
 
-    /// Rollback safety configuration
+    /// Rollback safety configuration. Not implemented yet: no offset snapshot
+    /// is taken and no automatic rollback runs; the fields are accepted for
+    /// forward compatibility.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rollback: Option<RollbackSpec>,
 
@@ -233,7 +235,7 @@ fn default_offset_strategy() -> String {
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RollbackSpec {
-    /// Create snapshot before restore
+    /// Create snapshot before restore (not implemented yet; no snapshot is taken)
     #[serde(default = "default_true")]
     pub snapshot_before_restore: bool,
 
@@ -241,7 +243,7 @@ pub struct RollbackSpec {
     #[serde(default = "default_retention_hours")]
     pub snapshot_retention_hours: u32,
 
-    /// Auto-rollback on failure
+    /// Auto-rollback on failure (not implemented yet; a failed restore is not rolled back)
     #[serde(default)]
     pub auto_rollback_on_failure: bool,
 
