@@ -99,8 +99,12 @@ Uses `kafka-backup-core` `v0.23.1`. CRD schemas are unchanged (descriptions only
   `No target offsets found in mapping` before), and waits in `Pending` while the referenced restore is
   missing or still running instead of failing — so both resources can be applied together.
 - Commits already on a restored topic, and topics restored with `repartitioning`, are left unchanged.
-- `KafkaRestore.spec.rollback` and `KafkaOffsetReset.spec.snapshotBeforeReset` are now documented as
-  not implemented: they never took a snapshot or rolled back. Don't rely on them as a safety net.
+- `KafkaRestore.spec.rollback` is now documented as not implemented: it never took a snapshot or rolled
+  back. `KafkaOffsetReset.spec.snapshotBeforeReset` takes a snapshot and records `status.snapshotId`, but
+  the snapshot is not saved, so `KafkaOffsetRollback` cannot use it. Don't rely on either as a safety net.
+- `KafkaOffsetReset` with `topics:` and `to-earliest` / `to-latest` / `to-offset` / `to-timestamp` now
+  resets those topics. Before, the topic-filtered fetch returned no offsets and the reset reported
+  `No-op: offsets already at target` without changing anything.
 
 ### 1.4.0
 

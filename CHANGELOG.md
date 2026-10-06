@@ -15,6 +15,12 @@
   restore's `topicMapping` / `partitionMapping` the same way; it failed with
   `No target offsets found in mapping` before. Commits already on a restored
   topic and repartitioned topics are left unchanged, so a re-run is a no-op.
+- `KafkaOffsetReset` with a `topics` list and `to-earliest` / `to-latest` /
+  `to-offset` / `to-timestamp` reset nothing: the group's offsets were fetched
+  for the named topics without partition indexes, which the broker answers
+  with nothing, and the reset was reported as `No-op: offsets already at
+  target`. The operator now fetches all of the group's committed offsets and
+  filters them by topic.
 - A `KafkaOffsetReset` that references a `KafkaRestore` which is missing or
   still running waits in `Pending` (requeued every 15s) instead of failing with
   `does not expose status.offsetMappingPath`; it fails with a clear message if
@@ -27,10 +33,13 @@
 ### Documentation
 
 - `KafkaRestore.spec.rollback` (`snapshotBeforeRestore`,
-  `autoRollbackOnFailure`) and `KafkaOffsetReset.spec.snapshotBeforeReset`
-  are documented as not implemented yet — they were accepted and logged but
-  never took a snapshot or rolled back; the README example no longer presents
-  them as a safety net. CRD descriptions only, no schema change.
+  `autoRollbackOnFailure`) is documented as not implemented yet — it was
+  accepted and logged but never took a snapshot or rolled back; the README
+  example no longer presents it as a safety net.
+  `KafkaOffsetReset.spec.snapshotBeforeReset` is documented accurately: the
+  snapshot is taken and its ID recorded in `status.snapshotId`, but it is not
+  saved, so `KafkaOffsetRollback` cannot restore from it. CRD descriptions
+  only, no schema change.
 - README: `from-mapping` offset reset example, `headerPreflight` /
   `offsetReset` in the restore example, `onMissingTopic`, the
   `kafka_backup_missing_topics` metric. minikube README: the scripts act on the

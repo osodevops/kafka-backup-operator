@@ -723,13 +723,12 @@ async fn reset_consumer_group_with_mapping(
     mapping: Option<&(OffsetMapping, RestoreTopicMapping)>,
     topics_filter: Option<&[String]>,
 ) -> std::result::Result<GroupResetOutcome, kafka_backup_core::Error> {
-    let fetch_topics = if reset.spec.reset_strategy == OffsetResetStrategy::FromMapping {
-        None
-    } else {
-        topics_filter
-    };
-    let current_offsets = match fetch_offsets(kafka_client, group_id, fetch_topics).await {
-        Ok(offsets) => offsets,
+    // Always fetch every committed offset of the group: an OffsetFetch for
+    // named topics without partition indexes returns nothing, which turned
+    // topic-filtered resets into silent no-ops. Filter afterwards instead.
+    let current_offsets = match fetch_offsets(kafka_client, group_id, None).await {
+        Ok(offsets) if reset.spec.reset_strategy == OffsetResetStrategy::FromMapping => offsets,
+        Ok(offsets) => committed_offsets_for_topics(offsets, topics_filter),
         Err(e) if reset.spec.reset_strategy == OffsetResetStrategy::FromMapping => {
             warn!(
                 group = %group_id,
@@ -854,6 +853,20 @@ async fn calculate_target_offsets(
     }
 
     Ok(target_offsets)
+}
+
+/// The group's committed offsets on `topics_filter` (all topics when `None`).
+fn committed_offsets_for_topics(
+    offsets: Vec<CommittedOffset>,
+    topics_filter: Option<&[String]>,
+) -> Vec<CommittedOffset> {
+    offsets
+        .into_iter()
+        .filter(|offset| {
+            offset.error_code == 0
+                && topics_filter.is_none_or(|topics| topics.contains(&offset.topic))
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1300,6 +1313,34 @@ mod issue49_tests {
             mapping_restore_readiness("r7", Some(&restore_in_phase(Some("Failed"), None))),
             RestoreReadiness::Failed(msg) if msg.contains("r7") && msg.contains("Failed")
         ));
+    }
+
+    #[test]
+    fn topics_filter_is_applied_to_the_groups_committed_offsets() {
+        // Asking the broker for a group's offsets on named topics without
+        // partition indexes returns nothing, which made every topic-filtered
+        // to-earliest/to-latest/to-offset/to-timestamp reset a silent no-op.
+        // The operator fetches all of the group's offsets and filters here.
+        let all = vec![
+            commit("orders-r1", 0, 80),
+            commit("orders-r1", 1, 70),
+            commit("orders", 0, 80),
+            CommittedOffset {
+                error_code: 3,
+                ..commit("orders-r1", 2, 1)
+            },
+        ];
+
+        let topics = vec!["orders-r1".to_string()];
+        let filtered = committed_offsets_for_topics(all.clone(), Some(&topics));
+        assert_eq!(
+            filtered
+                .iter()
+                .map(|o| (o.topic.as_str(), o.partition, o.offset))
+                .collect::<Vec<_>>(),
+            vec![("orders-r1", 0, 80), ("orders-r1", 1, 70)]
+        );
+        assert_eq!(committed_offsets_for_topics(all, None).len(), 3);
     }
 
     #[test]

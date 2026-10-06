@@ -1627,7 +1627,7 @@ spec:
                 type: integer
               snapshotBeforeReset:
                 default: true
-                description: Snapshot before reset for rollback (not implemented yet; no snapshot is taken)
+                description: Snapshot the groups' offsets before the reset. The snapshot is taken and its ID recorded in `status.snapshotId`, but it is not saved anywhere yet, so `KafkaOffsetRollback` cannot restore from it.
                 type: boolean
               topics:
                 default: []
