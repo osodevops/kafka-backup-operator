@@ -48,7 +48,7 @@ spec:
                     type: boolean
                   intervalSecs:
                     default: 30
-                    description: Checkpoint interval in seconds
+                    description: 'While a backup runs, its manifest and offset database are synced to storage every `2 x intervalSecs` seconds (offsets themselves are checkpointed at the end of every backup cycle). Without a checkpoint block, or with `enabled: false`, they sync every 30 seconds.'
                     format: uint64
                     minimum: 0.0
                     type: integer
@@ -68,7 +68,7 @@ spec:
                     type: object
                 type: object
               circuitBreaker:
-                description: Circuit breaker configuration
+                description: 'Kafka circuit breaker (advisory: logs state changes, never blocks requests). Core defaults apply when unset.'
                 nullable: true
                 properties:
                   enabled:
@@ -83,7 +83,7 @@ spec:
                     type: integer
                   operationTimeoutMs:
                     default: 30000
-                    description: Operation timeout (milliseconds)
+                    description: Not used by kafka-backup-core; retained for backwards compatibility
                     format: uint64
                     minimum: 0.0
                     type: integer
@@ -260,6 +260,13 @@ spec:
                     minimum: 0.0
                     type: integer
                 type: object
+              onMissingTopic:
+                default: fail
+                description: 'What to do when a literal (non-glob) entry in `topics` does not exist in the cluster: `fail` (default) fails the backup; `warn` skips it, records it in the manifest''s `missing_topics` and the `kafka_backup_missing_topics` gauge, and backs up the rest. Globs that match nothing are always skipped.'
+                enum:
+                - fail
+                - warn
+                type: string
               pollIntervalMs:
                 default: 100
                 description: Poll interval for continuous mode in milliseconds
@@ -960,7 +967,7 @@ spec:
                 - name
                 type: object
               circuitBreaker:
-                description: Circuit breaker configuration
+                description: 'Kafka circuit breaker (advisory: logs state changes, never blocks requests). Core defaults apply when unset.'
                 nullable: true
                 properties:
                   enabled:
@@ -975,7 +982,7 @@ spec:
                     type: integer
                   operationTimeoutMs:
                     default: 30000
-                    description: Operation timeout (milliseconds)
+                    description: Not used by kafka-backup-core; retained for backwards compatibility
                     format: uint64
                     minimum: 0.0
                     type: integer
@@ -1005,6 +1012,14 @@ spec:
                 default: false
                 description: Dry run mode (validate without executing)
                 type: boolean
+              headerPreflight:
+                default: auto
+                description: Phase 1 header preflight (kafka-backup-core >= 0.20). Before a restore that recovers consumer offsets (`offsetReset` or `autoConsumerGroups`) touches the target, core scans the backup for the offset-tracking headers and fails without writing anything if coverage is incomplete. `auto` (default) scans only when offsets are recovered; `full` always scans; `skip` never scans and turns preflight errors into warnings.
+                enum:
+                - auto
+                - full
+                - skip
+                type: string
               includeOriginalOffsetHeader:
                 default: true
                 description: 'Add `x-original-offset`, `x-original-timestamp` and `x-source-partition` headers to every restored record (also implied by header-based consumer offset recovery). Default: true — the operator has always done this; note the kafka-backup CLI default is false.'

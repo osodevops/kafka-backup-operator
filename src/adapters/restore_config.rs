@@ -7,7 +7,8 @@ use std::collections::HashMap;
 use kube::Client;
 
 use crate::crd::{
-    BackupRef, KafkaRestore, OffsetResetSpec, PitrSpec, RollbackSpec, TopicRepartitioningSpec,
+    BackupRef, HeaderPreflightPolicy, KafkaRestore, OffsetResetSpec, PitrSpec, RollbackSpec,
+    TopicRepartitioningSpec,
 };
 use crate::error::Result;
 
@@ -62,6 +63,8 @@ pub struct ResolvedRestoreConfig {
     pub include_original_offset_header: bool,
     /// Strip the headers kafka-backup added at backup time before producing
     pub strip_offset_headers: bool,
+    /// Phase 1 header preflight mode
+    pub header_preflight: HeaderPreflightPolicy,
 }
 
 /// Resolved backup source
@@ -189,6 +192,7 @@ pub async fn build_restore_config(
         default_replication_factor: restore.spec.default_replication_factor,
         include_original_offset_header: restore.spec.include_original_offset_header,
         strip_offset_headers: restore.spec.strip_offset_headers,
+        header_preflight: restore.spec.header_preflight,
     })
 }
 

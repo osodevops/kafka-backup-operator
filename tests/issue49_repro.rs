@@ -11,6 +11,7 @@ use kafka_backup_operator::crd::{
 };
 
 fn test_client() -> kube::Client {
+    kafka_backup_operator::install_crypto_provider();
     kube::Client::try_from(kube::Config::new(
         "http://127.0.0.1".parse().expect("valid URL"),
     ))
@@ -72,6 +73,7 @@ fn restore_with_storage_ref() -> KafkaRestore {
             default_replication_factor: None,
             include_original_offset_header: true,
             strip_offset_headers: false,
+            header_preflight: Default::default(),
         },
         status: None,
     }

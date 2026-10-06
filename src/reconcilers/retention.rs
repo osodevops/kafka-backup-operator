@@ -14,7 +14,7 @@ use kafka_backup_core::storage::{
 };
 use tracing::{debug, info, warn};
 
-use crate::adapters::{AzureAuthMethod, ResolvedStorage};
+use crate::adapters::{to_core_storage_config, ResolvedStorage};
 use crate::crd::RetentionSpec;
 use crate::error::{Error, Result};
 
@@ -351,77 +351,18 @@ fn is_generated_backup_suffix(suffix: &str) -> bool {
 }
 
 fn create_backend(storage: &ResolvedStorage) -> Result<Arc<dyn StorageBackend>> {
-    let config = match storage {
-        ResolvedStorage::Local(local) => StorageBackendConfig::Filesystem {
-            path: local.path.clone().into(),
-        },
-        ResolvedStorage::S3(s3) => StorageBackendConfig::S3 {
-            bucket: s3.bucket.clone(),
-            region: Some(s3.region.clone()),
-            endpoint: s3.endpoint.clone(),
-            access_key: Some(s3.access_key_id.clone()),
-            secret_key: Some(s3.secret_access_key.clone()),
-            prefix: s3.prefix.clone(),
-            path_style: false,
-            allow_http: s3
-                .endpoint
-                .as_ref()
-                .map(|endpoint| endpoint.starts_with("http://"))
-                .unwrap_or(false),
-        },
-        ResolvedStorage::Azure(azure) => {
-            let (
-                account_key,
-                use_workload_identity,
-                client_id,
-                tenant_id,
-                client_secret,
-                sas_token,
-            ) = match &azure.auth {
-                AzureAuthMethod::AccountKey(key) => {
-                    (Some(key.clone()), None, None, None, None, None)
-                }
-                AzureAuthMethod::SasToken(token) => {
-                    (None, None, None, None, None, Some(token.clone()))
-                }
-                AzureAuthMethod::ServicePrincipal {
-                    client_id,
-                    tenant_id,
-                    client_secret,
-                } => (
-                    None,
-                    None,
-                    Some(client_id.clone()),
-                    Some(tenant_id.clone()),
-                    Some(client_secret.clone()),
-                    None,
-                ),
-                AzureAuthMethod::WorkloadIdentity => (None, Some(true), None, None, None, None),
-                AzureAuthMethod::DefaultCredential => (None, None, None, None, None, None),
-            };
-
-            StorageBackendConfig::Azure {
-                account_name: azure.account_name.clone(),
-                container_name: azure.container.clone(),
-                account_key,
-                prefix: azure.prefix.clone(),
-                endpoint: azure.endpoint.clone(),
-                use_workload_identity,
-                client_id,
-                tenant_id,
-                client_secret,
-                sas_token,
-            }
-        }
-        ResolvedStorage::Gcs(_) => {
-            return Err(Error::storage(
-                "Operator-managed retention for gcs storage is not supported yet; use a GCS lifecycle policy",
-            ));
-        }
-    };
-
-    create_backend_from_config(&config)
+    create_backend_from_config(&backend_config(storage)?)
         .map_err(|e| Error::storage(format!("Failed to create retention storage backend: {}", e)))
+}
+
+/// Storage config for retention: identical to what the backup engine uses.
+fn backend_config(storage: &ResolvedStorage) -> Result<StorageBackendConfig> {
+    if let ResolvedStorage::Gcs(_) = storage {
+        return Err(Error::storage(
+            "Operator-managed retention for gcs storage is not supported yet; use a GCS lifecycle policy",
+        ));
+    }
+    Ok(to_core_storage_config(storage))
 }
 
 #[cfg(test)]
@@ -466,6 +407,8 @@ mod tests {
             name: "test-topic".to_string(),
             original_partition_count: Some(1),
             partitions: Vec::new(),
+            source_replication_factor: None,
+            configurations: Default::default(),
         });
 
         fs::write(
@@ -479,6 +422,28 @@ mod tests {
         )
         .unwrap();
         fs::write(base.join(format!("{}-offsets.db", backup_id)), b"offsets").unwrap();
+    }
+
+    #[test]
+    fn s3_retention_addresses_the_bucket_like_the_backup_engine() {
+        // Core >= 0.22 honours `path_style` (it was discarded before), so a
+        // hardcoded `false` here would send retention virtual-hosted requests
+        // to a bucket the backup reaches path-style (issue #84).
+        let storage = ResolvedStorage::S3(crate::adapters::S3StorageConfig {
+            bucket: "kafka.backups".to_string(),
+            region: "eu-west-2".to_string(),
+            endpoint: None,
+            path_style: true,
+            allow_http: false,
+            prefix: Some("prod".to_string()),
+            access_key_id: "key".to_string(),
+            secret_access_key: "secret".to_string(),
+        });
+
+        assert_eq!(
+            format!("{:?}", backend_config(&storage).unwrap()),
+            format!("{:?}", to_core_storage_config(&storage))
+        );
     }
 
     #[test]

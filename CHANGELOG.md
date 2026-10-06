@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.4.0 - 2026-10-06
+
+Builds against `kafka-backup-core` 0.23.0
+([#84](https://github.com/osodevops/kafka-backup-operator/issues/84)).
+
+### Added
+
+- `KafkaBackup.spec.onMissingTopic` (`fail` default, `warn`): skip literal
+  topics absent from the cluster, record them in the manifest's
+  `missing_topics` and the `kafka_backup_missing_topics` gauge.
+- `KafkaRestore.spec.headerPreflight` (`auto` default, `full`, `skip`): the
+  Phase 1 header preflight core 0.20 runs before a restore that recovers
+  consumer offsets; `skip` is the escape hatch its error message points to.
+
+### Fixed
+
+- The operator no longer panics at startup when built against core 0.23.
+  object_store 0.14 (via reqwest 0.13) links rustls' aws-lc-rs backend next to
+  ring, so rustls could not pick a process-default crypto provider and the
+  Kubernetes client panicked; the operator now installs ring explicitly.
+- `spec.circuitBreaker` on `KafkaBackup` / `KafkaRestore` reaches core (it was
+  silently ignored). `operationTimeoutMs` has no core counterpart.
+- No core deprecation warning on every backup: the operator stops setting
+  `offset_storage.s3_key` (ignored by core; the offset database always lived at
+  `{backup_id}/offsets.db`) and `backup.checkpoint_interval_secs` (no effect).
+  The offset database keeps syncing on `backup.sync_interval_secs`, driven by
+  `checkpoint.intervalSecs`.
+- Retention builds its storage backend from the same conversion as backups, so
+  an explicit S3 `pathStyle` is honoured there too (core 0.22 started honouring
+  it for backups).
+
+### Changed
+
+- `kafka-backup-core` 0.19.2 → 0.23.0: topic-config capture and restore,
+  header preflight before offset recovery, missing-topic handling, tunable
+  circuit breaker, restore lock-contention fixes.
+- Docker builder `rust:1.88` → `rust:1.96` (new dependencies need ≥ 1.89).
+
 ## 1.3.0 - 2026-08-30
 
 ### Added

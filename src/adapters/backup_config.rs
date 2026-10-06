@@ -6,7 +6,7 @@ use kube::Client;
 
 use crate::crd::{
     CheckpointSpec, CircuitBreakerSpec, KafkaBackup, KafkaClusterSpec, KafkaConnectionSpec,
-    MetricsSpec, RateLimitingSpec,
+    MetricsSpec, OnMissingTopicPolicy, RateLimitingSpec,
 };
 use crate::error::Result;
 
@@ -131,6 +131,7 @@ pub struct ResolvedBackupOptionsConfig {
     pub source_cluster_id: Option<String>,
     pub poll_interval_ms: u64,
     pub consumer_group_snapshot: bool,
+    pub on_missing_topic: OnMissingTopicPolicy,
 }
 
 /// Build fully resolved backup configuration from CRD
@@ -180,6 +181,7 @@ pub async fn build_backup_config(
         source_cluster_id: backup.spec.source_cluster_id.clone(),
         poll_interval_ms: backup.spec.poll_interval_ms,
         consumer_group_snapshot: backup.spec.consumer_group_snapshot,
+        on_missing_topic: backup.spec.on_missing_topic,
     };
 
     Ok(ResolvedBackupConfig {
