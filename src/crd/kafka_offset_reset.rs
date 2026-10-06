@@ -62,7 +62,7 @@ pub struct KafkaOffsetResetSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset_mapping_ref: Option<OffsetMappingRef>,
 
-    /// Snapshot before reset for rollback
+    /// Snapshot before reset for rollback (not implemented yet; no snapshot is taken)
     #[serde(default = "default_true")]
     pub snapshot_before_reset: bool,
 }

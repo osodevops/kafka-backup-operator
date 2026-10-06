@@ -13,6 +13,7 @@ use kafka_backup_core::kafka::consumer_groups::{
 };
 use kafka_backup_core::kafka::KafkaClient;
 use kafka_backup_core::manifest::OffsetMapping;
+use kafka_backup_core::restore::RestoreTopicMapping;
 use kafka_backup_core::{snapshot_current_offsets, BulkOffsetResetConfig};
 use kube::{
     api::{Patch, PatchParams},
@@ -135,6 +136,37 @@ pub async fn execute(reset: &KafkaOffsetReset, client: &Client, namespace: &str)
         strategy = ?reset.spec.reset_strategy,
         "Starting offset reset execution"
     );
+
+    // A KafkaRestore applied together with this reset is usually still
+    // running: wait for its offset mapping instead of failing on it.
+    if let Some(restore_name) = mapping_restore_name(reset) {
+        let restores: Api<KafkaRestore> = Api::namespaced(client.clone(), namespace);
+        let restore = restores.get_opt(restore_name).await?;
+        match mapping_restore_readiness(restore_name, restore.as_ref()) {
+            RestoreReadiness::Ready => {}
+            RestoreReadiness::Wait(message) => {
+                info!(name = %name, restore = %restore_name, "{}", message);
+                api.patch_status(
+                    &name,
+                    &PatchParams::apply("kafka-backup-operator"),
+                    &Patch::Merge(&json!({
+                        "status": {
+                            "phase": "Pending",
+                            "message": message,
+                            "observedGeneration": reset.metadata.generation,
+                        }
+                    })),
+                )
+                .await?;
+                return Ok(Action::requeue(Duration::from_secs(15)));
+            }
+            RestoreReadiness::Failed(message) => {
+                warn!(name = %name, restore = %restore_name, "{}", message);
+                update_status_failed(reset, client, namespace, &message).await?;
+                return Ok(Action::await_change());
+            }
+        }
+    }
 
     // Check if this is a dry run
     if reset.spec.dry_run {
@@ -495,24 +527,93 @@ async fn load_offset_mapping(
     reset: &KafkaOffsetReset,
     client: &Client,
     namespace: &str,
-) -> Result<OffsetMapping> {
+) -> Result<(OffsetMapping, RestoreTopicMapping)> {
     let mapping_ref = reset.spec.offset_mapping_ref.as_ref().ok_or_else(|| {
         Error::validation("offsetMappingRef is required when using from-mapping strategy")
     })?;
-    let path = resolve_offset_mapping_path(mapping_ref, client, namespace).await?;
+    // The restore that wrote the mapping also says where it wrote each topic.
+    let restore = match &mapping_ref.restore_name {
+        Some(restore_name) => {
+            let api: Api<KafkaRestore> = Api::namespaced(client.clone(), namespace);
+            Some(api.get(restore_name).await?)
+        }
+        None => None,
+    };
+    let path = resolve_offset_mapping_path(mapping_ref, restore.as_ref())?;
     let contents = tokio::fs::read_to_string(&path).await.map_err(|e| {
         Error::storage(format!(
             "Failed to read offset mapping at '{}': {}",
             path, e
         ))
     })?;
-    serde_json::from_str(&contents).map_err(Error::from)
+    let mapping = serde_json::from_str(&contents).map_err(Error::from)?;
+    let topics = restore
+        .as_ref()
+        .map(restore_topic_mapping)
+        .unwrap_or_default();
+    Ok((mapping, topics))
 }
 
-async fn resolve_offset_mapping_path(
+/// Whether the KafkaRestore a from-mapping reset reads has produced its
+/// offset mapping yet.
+#[derive(Debug)]
+enum RestoreReadiness {
+    Ready,
+    Wait(String),
+    Failed(String),
+}
+
+/// The KafkaRestore whose status supplies the offset mapping, if the reset
+/// takes it from one (an explicit `path` / `pvcName` does not need it).
+fn mapping_restore_name(reset: &KafkaOffsetReset) -> Option<&str> {
+    if reset.spec.reset_strategy != OffsetResetStrategy::FromMapping {
+        return None;
+    }
+    let mapping_ref = reset.spec.offset_mapping_ref.as_ref()?;
+    if mapping_ref.path.is_some() || mapping_ref.pvc_name.is_some() {
+        return None;
+    }
+    mapping_ref.restore_name.as_deref()
+}
+
+fn mapping_restore_readiness(
+    restore_name: &str,
+    restore: Option<&KafkaRestore>,
+) -> RestoreReadiness {
+    let Some(restore) = restore else {
+        return RestoreReadiness::Wait(format!(
+            "Waiting for KafkaRestore '{}' to be created",
+            restore_name
+        ));
+    };
+    match restore.status.as_ref().and_then(|s| s.phase.as_deref()) {
+        Some("Completed") => RestoreReadiness::Ready,
+        Some(phase @ ("Failed" | "RolledBack")) => RestoreReadiness::Failed(format!(
+            "KafkaRestore '{}' is {}; it produced no offset mapping to reset from",
+            restore_name, phase
+        )),
+        phase => RestoreReadiness::Wait(format!(
+            "Waiting for KafkaRestore '{}' to complete (phase: {})",
+            restore_name,
+            phase.unwrap_or("Pending")
+        )),
+    }
+}
+
+/// Where a restore wrote each source topic/partition. The offset mapping it
+/// produced is keyed by those targets, while a group's committed offsets name
+/// the source topics.
+fn restore_topic_mapping(restore: &KafkaRestore) -> RestoreTopicMapping {
+    RestoreTopicMapping::new(
+        restore.spec.topic_mapping.clone(),
+        restore.spec.partition_mapping.clone(),
+        restore.spec.repartitioning.keys().cloned(),
+    )
+}
+
+fn resolve_offset_mapping_path(
     mapping_ref: &OffsetMappingRef,
-    client: &Client,
-    namespace: &str,
+    restore: Option<&KafkaRestore>,
 ) -> Result<String> {
     if let Some(pvc_name) = &mapping_ref.pvc_name {
         let relative_path = mapping_ref.path.as_deref().unwrap_or("offset-mapping.json");
@@ -526,16 +627,15 @@ async fn resolve_offset_mapping_path(
         return Ok(path.clone());
     }
 
-    if let Some(restore_name) = &mapping_ref.restore_name {
-        let api: Api<KafkaRestore> = Api::namespaced(client.clone(), namespace);
-        let restore = api.get(restore_name).await?;
+    if let Some(restore) = restore {
         return restore
             .status
-            .and_then(|status| status.offset_mapping_path)
+            .as_ref()
+            .and_then(|status| status.offset_mapping_path.clone())
             .ok_or_else(|| {
                 Error::validation(format!(
                     "KafkaRestore '{}' does not expose status.offsetMappingPath",
-                    restore_name
+                    restore.name_any()
                 ))
             });
     }
@@ -604,7 +704,7 @@ async fn reset_consumer_group(
     kafka_client: &KafkaClient,
     group_id: &str,
     reset: &KafkaOffsetReset,
-    mapping: Option<&OffsetMapping>,
+    mapping: Option<&(OffsetMapping, RestoreTopicMapping)>,
 ) -> std::result::Result<GroupResetOutcome, kafka_backup_core::Error> {
     // First, fetch current offsets to know which partitions to reset
     // Pass None for topics filter to get all offsets for this group
@@ -620,7 +720,7 @@ async fn reset_consumer_group_with_mapping(
     kafka_client: &KafkaClient,
     group_id: &str,
     reset: &KafkaOffsetReset,
-    mapping: Option<&OffsetMapping>,
+    mapping: Option<&(OffsetMapping, RestoreTopicMapping)>,
     topics_filter: Option<&[String]>,
 ) -> std::result::Result<GroupResetOutcome, kafka_backup_core::Error> {
     let fetch_topics = if reset.spec.reset_strategy == OffsetResetStrategy::FromMapping {
@@ -648,12 +748,18 @@ async fn reset_consumer_group_with_mapping(
 
     // Calculate target offsets based on strategy
     let target_offsets = if reset.spec.reset_strategy == OffsetResetStrategy::FromMapping {
-        let mapping = mapping.ok_or_else(|| {
+        let (mapping, restore_topics) = mapping.ok_or_else(|| {
             kafka_backup_core::Error::Config(
                 "from-mapping strategy requires a loaded offset mapping".to_string(),
             )
         })?;
-        target_offsets_from_mapping(mapping, group_id, topics_filter, &current_offsets)?
+        target_offsets_from_mapping(
+            mapping,
+            restore_topics,
+            group_id,
+            topics_filter,
+            &current_offsets,
+        )?
     } else {
         calculate_target_offsets(
             kafka_client,
@@ -758,6 +864,7 @@ enum GroupResetOutcome {
 
 fn target_offsets_from_mapping(
     mapping: &OffsetMapping,
+    restore_topics: &RestoreTopicMapping,
     group_id: &str,
     topics_filter: Option<&[String]>,
     current_offsets: &[CommittedOffset],
@@ -765,6 +872,7 @@ fn target_offsets_from_mapping(
     let Some(group_offsets) = mapping.consumer_groups.get(group_id) else {
         return target_offsets_from_current_offsets(
             mapping,
+            restore_topics,
             group_id,
             topics_filter,
             current_offsets,
@@ -812,6 +920,7 @@ fn target_offsets_from_mapping(
 
 fn target_offsets_from_current_offsets(
     mapping: &OffsetMapping,
+    restore_topics: &RestoreTopicMapping,
     group_id: &str,
     topics_filter: Option<&[String]>,
     current_offsets: &[CommittedOffset],
@@ -827,19 +936,34 @@ fn target_offsets_from_current_offsets(
     let mut missing_offsets = Vec::new();
 
     for offset in current_offsets {
-        if offset.error_code != 0
-            || topics_filter
-                .map(|topics| !topics.iter().any(|candidate| candidate == &offset.topic))
-                .unwrap_or(false)
+        if offset.error_code != 0 {
+            continue;
+        }
+        // Committed offsets name the source topic; the mapping is keyed by
+        // where the restore wrote it. Commits on a rename target are already
+        // in target space and are left alone.
+        let Some((topic, partition)) = restore_topics.target(&offset.topic, offset.partition)
+        else {
+            continue;
+        };
+        if topics_filter
+            .map(|topics| {
+                !topics
+                    .iter()
+                    .any(|candidate| candidate == &offset.topic || candidate == &topic)
+            })
+            .unwrap_or(false)
         {
             continue;
         }
+        let translated = topic != offset.topic || partition != offset.partition;
 
-        if detailed_mapping_target_contains(mapping, &offset.topic, offset.partition, offset.offset)
+        if !translated
+            && detailed_mapping_target_contains(mapping, &topic, partition, offset.offset)
         {
             target_offsets.push(CommittedOffset {
-                topic: offset.topic.clone(),
-                partition: offset.partition,
+                topic,
+                partition,
                 offset: offset.offset,
                 metadata: offset.metadata.clone(),
                 error_code: 0,
@@ -847,22 +971,17 @@ fn target_offsets_from_current_offsets(
             continue;
         }
 
-        if let Some(target_offset) = lookup_target_offset_without_extrapolating(
-            mapping,
-            &offset.topic,
-            offset.partition,
-            offset.offset,
-        ) {
+        if let Some(target_offset) =
+            lookup_target_offset_without_extrapolating(mapping, &topic, partition, offset.offset)
+        {
             target_offsets.push(CommittedOffset {
-                topic: offset.topic.clone(),
-                partition: offset.partition,
+                topic,
+                partition,
                 offset: target_offset,
                 metadata: offset.metadata.clone(),
                 error_code: 0,
             });
-        } else if offset.offset != 0
-            || detailed_mapping_exists(mapping, &offset.topic, offset.partition)
-        {
+        } else if offset.offset != 0 || detailed_mapping_exists(mapping, &topic, partition) {
             missing_offsets.push(format!(
                 "{}:{}:{}",
                 offset.topic, offset.partition, offset.offset
@@ -1100,6 +1219,169 @@ mod issue49_tests {
         );
     }
 
+    fn identity() -> RestoreTopicMapping {
+        RestoreTopicMapping::default()
+    }
+
+    fn commit(topic: &str, partition: i32, offset: i64) -> CommittedOffset {
+        CommittedOffset {
+            topic: topic.to_string(),
+            partition,
+            offset,
+            metadata: None,
+            error_code: 0,
+        }
+    }
+
+    /// kafka-backup#214 / operator: a restore with `topicMapping` keys the
+    /// offset mapping by the restored topic, while the group's commits name
+    /// the source topic.
+    fn restored_as_orders_r7() -> (OffsetMapping, RestoreTopicMapping) {
+        let mut mapping = OffsetMapping::new();
+        mapping.add_detailed("orders-r7", 0, 120, 7, 1_700_000_000_000);
+        let restore = restore_topic_mapping(&restore_with_mapping(serde_json::json!({
+            "topicMapping": {"orders": "orders-r7"}
+        })));
+        (mapping, restore)
+    }
+
+    fn restore_with_mapping(overrides: serde_json::Value) -> KafkaRestore {
+        let mut spec = serde_json::json!({
+            "backupRef": {"name": "orders-backup"},
+            "kafkaCluster": {"bootstrapServers": ["kafka:9092"]},
+            "topics": ["orders"],
+        });
+        spec.as_object_mut()
+            .unwrap()
+            .extend(overrides.as_object().unwrap().clone());
+        KafkaRestore::new("r7", serde_json::from_value(spec).unwrap())
+    }
+
+    fn restore_in_phase(phase: Option<&str>, mapping_path: Option<&str>) -> KafkaRestore {
+        let mut restore = restore_with_mapping(serde_json::json!({}));
+        restore.status = phase.map(|phase| {
+            serde_json::from_value(serde_json::json!({
+                "phase": phase,
+                "offsetMappingPath": mapping_path,
+            }))
+            .unwrap()
+        });
+        restore
+    }
+
+    #[test]
+    fn reset_waits_for_a_restore_that_has_not_finished() {
+        // Applied together (GitOps), the reset usually reconciles first.
+        assert!(matches!(
+            mapping_restore_readiness("r7", None),
+            RestoreReadiness::Wait(msg) if msg.contains("r7")
+        ));
+        for phase in [None, Some("Pending"), Some("Running")] {
+            assert!(
+                matches!(
+                    mapping_restore_readiness("r7", Some(&restore_in_phase(phase, None))),
+                    RestoreReadiness::Wait(_)
+                ),
+                "{phase:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn reset_proceeds_once_the_restore_completed_and_fails_if_it_failed() {
+        assert!(matches!(
+            mapping_restore_readiness(
+                "r7",
+                Some(&restore_in_phase(Some("Completed"), Some("/tmp/m.json")))
+            ),
+            RestoreReadiness::Ready
+        ));
+        assert!(matches!(
+            mapping_restore_readiness("r7", Some(&restore_in_phase(Some("Failed"), None))),
+            RestoreReadiness::Failed(msg) if msg.contains("r7") && msg.contains("Failed")
+        ));
+    }
+
+    #[test]
+    fn committed_source_offsets_are_translated_through_the_restores_topic_mapping() {
+        let (mapping, restore) = restored_as_orders_r7();
+
+        let targets = target_offsets_from_mapping(
+            &mapping,
+            &restore,
+            "orders-app",
+            None,
+            &[commit("orders", 0, 120)],
+        )
+        .unwrap();
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(
+            (
+                targets[0].topic.as_str(),
+                targets[0].partition,
+                targets[0].offset
+            ),
+            ("orders-r7", 0, 7)
+        );
+    }
+
+    #[test]
+    fn rerun_after_a_translated_reset_is_a_noop() {
+        // The first run committed orders-r7:0 = 7; that commit is already in
+        // target space and must not be translated again.
+        let (mapping, restore) = restored_as_orders_r7();
+        let current = vec![commit("orders", 0, 120), commit("orders-r7", 0, 7)];
+
+        let targets =
+            target_offsets_from_mapping(&mapping, &restore, "orders-app", None, &current).unwrap();
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].topic, "orders-r7");
+        assert!(offsets_already_at_target(&current, &targets));
+    }
+
+    #[test]
+    fn topics_filter_matches_the_source_or_the_restored_topic_name() {
+        let (mapping, restore) = restored_as_orders_r7();
+        let current = [commit("orders", 0, 120)];
+
+        for filter in ["orders", "orders-r7"] {
+            let topics = vec![filter.to_string()];
+            let targets = target_offsets_from_mapping(
+                &mapping,
+                &restore,
+                "orders-app",
+                Some(&topics),
+                &current,
+            )
+            .unwrap();
+            assert_eq!(targets.len(), 1, "filter {filter}");
+        }
+
+        let other = vec!["payments".to_string()];
+        let targets =
+            target_offsets_from_mapping(&mapping, &restore, "orders-app", Some(&other), &current)
+                .unwrap();
+        assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn restore_topic_mapping_follows_the_restore_spec() {
+        let restore = restore_topic_mapping(&restore_with_mapping(serde_json::json!({
+            "topicMapping": {"orders": "orders-r7"},
+            "partitionMapping": {"0": 2},
+            "repartitioning": {"payments": {"strategy": "murmur2", "targetPartitions": 6}}
+        })));
+
+        assert_eq!(
+            restore.target("orders", 0),
+            Some(("orders-r7".to_string(), 2))
+        );
+        assert_eq!(restore.target("orders-r7", 0), None);
+        assert_eq!(restore.target("payments", 0), None);
+    }
+
     #[test]
     fn target_offsets_are_derived_from_mapping_consumer_group_snapshot() {
         let mut mapping = OffsetMapping::new();
@@ -1114,7 +1396,8 @@ mod issue49_tests {
         );
 
         let targets =
-            target_offsets_from_mapping(&mapping, "test.consumergroup.v1", None, &[]).unwrap();
+            target_offsets_from_mapping(&mapping, &identity(), "test.consumergroup.v1", None, &[])
+                .unwrap();
 
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].topic, "orders");
@@ -1135,8 +1418,14 @@ mod issue49_tests {
             error_code: 0,
         }];
 
-        let targets =
-            target_offsets_from_mapping(&mapping, "test.consumergroup.v1", None, &current).unwrap();
+        let targets = target_offsets_from_mapping(
+            &mapping,
+            &identity(),
+            "test.consumergroup.v1",
+            None,
+            &current,
+        )
+        .unwrap();
 
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].offset, 107);
@@ -1156,8 +1445,14 @@ mod issue49_tests {
             error_code: 0,
         }];
 
-        let targets =
-            target_offsets_from_mapping(&mapping, "test.consumergroup.v1", None, &current).unwrap();
+        let targets = target_offsets_from_mapping(
+            &mapping,
+            &identity(),
+            "test.consumergroup.v1",
+            None,
+            &current,
+        )
+        .unwrap();
 
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].offset, 107);

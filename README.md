@@ -6,7 +6,7 @@
 
 A Kubernetes operator for automated Kafka backup and disaster recovery. Built with Rust using [kube-rs](https://kube.rs/) for high performance and reliability.
 
-**Current release: v1.4.0** (embeds `kafka-backup-core` v0.23.0). See [Upgrade Notes](#upgrade-notes).
+**Current release: v1.4.1** (embeds `kafka-backup-core` v0.23.1). See [Upgrade Notes](#upgrade-notes).
 
 ## Features
 
@@ -85,6 +85,22 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 | `KafkaBackupValidation` | `kbv` | Validate backups and produce evidence reports |
 
 ## Upgrade Notes
+
+### 1.4.1
+
+Uses `kafka-backup-core` `v0.23.1`. CRD schemas are unchanged (descriptions only).
+
+- A `KafkaRestore` with `topicMapping` and `offsetReset.consumerGroups` now resets the groups on the
+  restored topic. Previously Phase 3 logged `No target offset mapping for <group>:<topic>:<p> - skipping`
+  and reset nothing, because the group's commits name the source topic while the offset mapping is keyed
+  by the restored one ([kafka-backup#214](https://github.com/osodevops/kafka-backup/issues/214)).
+- `KafkaOffsetReset` with `resetStrategy: from-mapping` and `offsetMappingRef.restoreName` translates the
+  group's commits through that restore's `topicMapping` / `partitionMapping` the same way (it failed with
+  `No target offsets found in mapping` before), and waits in `Pending` while the referenced restore is
+  missing or still running instead of failing — so both resources can be applied together.
+- Commits already on a restored topic, and topics restored with `repartitioning`, are left unchanged.
+- `KafkaRestore.spec.rollback` and `KafkaOffsetReset.spec.snapshotBeforeReset` are now documented as
+  not implemented: they never took a snapshot or rolled back. Don't rely on them as a safety net.
 
 ### 1.4.0
 
@@ -178,9 +194,10 @@ spec:
   includeOffsetHeaders: true   # default; adds x-original-offset / x-original-timestamp to every archived record
   sourceClusterId: production
   consumerGroupSnapshot: true
+  onMissingTopic: fail         # default; `warn` skips topics absent from the cluster and backs up the rest
   checkpoint:
     enabled: true
-    intervalSecs: 30
+    intervalSecs: 30           # manifest + offset database sync every 2 x intervalSecs
 ```
 
 ### Backup to S3
@@ -277,7 +294,18 @@ spec:
   createTopics: true
   produceAcks: -1
   produceTimeoutMs: 30000
+  # Consumer offsets: either take the groups from the backup's snapshot
+  # (KafkaBackup consumerGroupSnapshot: true) ...
   autoConsumerGroups: true
+  # ... or name them; their committed offsets are translated through topicMapping
+  # (1.4.1+) and committed on the restored topic. Repartitioned topics are skipped.
+  # offsetReset:
+  #   enabled: true
+  #   consumerGroups: [orders-processor]
+  #   strategy: header-based          # `manual` only writes the offset mapping report
+  # Offset recovery first checks the backup carries the x-original-offset headers
+  # and fails before writing anything if not (1.4.0+). `skip` turns that into warnings.
+  headerPreflight: auto
   # Header options (1.3.0+): default true / false. For a header-for-header identical
   # restore of an archive taken with includeOffsetHeaders (the backup default), use
   # includeOriginalOffsetHeader: false + stripOffsetHeaders: true.
@@ -286,10 +314,8 @@ spec:
   # Required when restoring all topics or explicit topics back to the same names.
   # Keep false when using topicMapping to restore into separate target topics.
   purgeTopics: false
-  # Safety: Create snapshot before restore
-  rollback:
-    snapshotBeforeRestore: true
-    autoRollbackOnFailure: true
+  # rollback.snapshotBeforeRestore / autoRollbackOnFailure are accepted but not
+  # implemented yet: no offset snapshot is taken and a failed restore is not rolled back.
 ```
 
 ### Reset Consumer Offsets
@@ -309,6 +335,32 @@ spec:
     - orders
   resetStrategy: to-earliest
 ```
+
+To move a group onto restored data, reset it from the offset mapping a `KafkaRestore` wrote
+(`restore-orders` above needs `autoConsumerGroups` or `offsetReset.enabled` to write one). The
+group's committed source offsets are translated through the restore's `topicMapping` /
+`partitionMapping`, and the reset waits in `Pending` until the restore has completed, so both
+resources can be applied together (1.4.1+):
+
+```yaml
+apiVersion: kafka.oso.sh/v1alpha1
+kind: KafkaOffsetReset
+metadata:
+  name: reset-from-restore
+spec:
+  kafkaCluster:
+    bootstrapServers:
+      - kafka-bootstrap:9092
+  consumerGroups:
+    - orders-processor
+  resetStrategy: from-mapping
+  offsetMappingRef:
+    restoreName: restore-orders
+```
+
+The mapping report is written to the operator pod's local disk (`status.offsetMappingPath` on the
+restore) and does not survive an operator restart; for PVC-backed restores it is stored next to the
+backup instead.
 
 ## Helm Values
 
@@ -500,8 +552,10 @@ are exported on the same endpoint under the `kafka_backup_` prefix, labelled by
 `kafka_backup_bytes_total`, `kafka_backup_uncompressed_bytes_total`,
 `kafka_backup_compressed_bytes_total`, `kafka_backup_compression_ratio`,
 `kafka_backup_lag_records`, `kafka_backup_lag_records_sum`,
-`kafka_backup_storage_write_bytes_total` (labelled with the storage `backend`)
-and `kafka_backup_storage_write_latency_seconds`. Further families — throughput,
+`kafka_backup_storage_write_bytes_total` (labelled with the storage `backend`),
+`kafka_backup_storage_write_latency_seconds` and `kafka_backup_missing_topics`
+(literal topics absent from the cluster under `onMissingTopic: warn`; 0 otherwise).
+Further families — throughput,
 snapshot progress, retries, rebalances — appear once a backup exercises the
 corresponding code path.
 
@@ -537,7 +591,7 @@ curl -s http://127.0.0.1:8080/metrics | grep -E '^kafka_backup_(operator_)?'
    - Identify the backup to restore from: `kubectl get kafkabackup my-backup -o yaml`
    - Create a `KafkaRestore` resource pointing to the backup
    - Monitor progress: `kubectl get kafkarestore -w`
-4. **Post-Recovery**: Optionally reset consumer offsets with `KafkaOffsetReset`
+4. **Consumer offsets**: recover them as part of the restore (`autoConsumerGroups` or `offsetReset`), or afterwards with a `KafkaOffsetReset` using `resetStrategy: from-mapping` and the restore's name
 
 ## Architecture
 

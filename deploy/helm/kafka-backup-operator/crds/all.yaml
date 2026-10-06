@@ -1242,16 +1242,16 @@ spec:
                 description: Per-topic repartitioning, keyed by target topic name
                 type: object
               rollback:
-                description: Rollback safety configuration
+                description: 'Rollback safety configuration. Not implemented yet: no offset snapshot is taken and no automatic rollback runs; the fields are accepted for forward compatibility.'
                 nullable: true
                 properties:
                   autoRollbackOnFailure:
                     default: false
-                    description: Auto-rollback on failure
+                    description: Auto-rollback on failure (not implemented yet; a failed restore is not rolled back)
                     type: boolean
                   snapshotBeforeRestore:
                     default: true
-                    description: Create snapshot before restore
+                    description: Create snapshot before restore (not implemented yet; no snapshot is taken)
                     type: boolean
                   snapshotRetentionHours:
                     default: 24
@@ -1627,7 +1627,7 @@ spec:
                 type: integer
               snapshotBeforeReset:
                 default: true
-                description: Snapshot before reset for rollback
+                description: Snapshot before reset for rollback (not implemented yet; no snapshot is taken)
                 type: boolean
               topics:
                 default: []
