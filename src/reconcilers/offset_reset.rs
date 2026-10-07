@@ -11,7 +11,7 @@ use kafka_backup_core::config::{SaslMechanism, SecurityConfig, SecurityProtocol,
 use kafka_backup_core::kafka::consumer_groups::{
     commit_offsets, fetch_offsets, offsets_for_times, CommittedOffset,
 };
-use kafka_backup_core::kafka::KafkaClient;
+use kafka_backup_core::kafka::PartitionLeaderRouter;
 use kafka_backup_core::manifest::OffsetMapping;
 use kafka_backup_core::restore::RestoreTopicMapping;
 use kafka_backup_core::{snapshot_current_offsets, BulkOffsetResetConfig};
@@ -393,12 +393,14 @@ async fn execute_reset_internal(
         connection: to_core_connection_config(&resolved_kafka),
     };
 
-    // Create and connect KafkaClient
-    let kafka_client = KafkaClient::new(core_kafka_config);
-    kafka_client
-        .connect()
+    // Connect through a partition-leader router: ListOffsets for the
+    // to-earliest/latest/timestamp strategies must reach each partition's
+    // leader (#224). Group requests go through its bootstrap client, which
+    // routes them to the group coordinator.
+    let router = PartitionLeaderRouter::new(core_kafka_config)
         .await
         .map_err(|e| Error::Core(format!("Failed to connect to Kafka: {}", e)))?;
+    let kafka_client = router.bootstrap_client();
 
     info!(name = %name, "Connected to Kafka cluster");
 
@@ -407,7 +409,7 @@ async fn execute_reset_internal(
         info!(name = %name, "Creating pre-reset offset snapshot");
 
         match snapshot_current_offsets(
-            &kafka_client,
+            kafka_client,
             &reset.spec.consumer_groups,
             bootstrap_servers.clone(),
         )
@@ -462,7 +464,7 @@ async fn execute_reset_internal(
     for group_id in &reset.spec.consumer_groups {
         info!(name = %name, group = %group_id, "Processing consumer group");
 
-        match reset_consumer_group(&kafka_client, group_id, reset, offset_mapping.as_ref()).await {
+        match reset_consumer_group(&router, group_id, reset, offset_mapping.as_ref()).await {
             Ok(GroupResetOutcome::Applied(partitions_reset)) => {
                 if partitions_reset > 0 {
                     groups_reset += 1;
@@ -701,7 +703,7 @@ fn build_core_security_config(
 
 /// Reset offsets for a single consumer group
 async fn reset_consumer_group(
-    kafka_client: &KafkaClient,
+    router: &PartitionLeaderRouter,
     group_id: &str,
     reset: &KafkaOffsetReset,
     mapping: Option<&(OffsetMapping, RestoreTopicMapping)>,
@@ -713,16 +715,17 @@ async fn reset_consumer_group(
     } else {
         Some(&reset.spec.topics)
     };
-    reset_consumer_group_with_mapping(kafka_client, group_id, reset, mapping, topics_filter).await
+    reset_consumer_group_with_mapping(router, group_id, reset, mapping, topics_filter).await
 }
 
 async fn reset_consumer_group_with_mapping(
-    kafka_client: &KafkaClient,
+    router: &PartitionLeaderRouter,
     group_id: &str,
     reset: &KafkaOffsetReset,
     mapping: Option<&(OffsetMapping, RestoreTopicMapping)>,
     topics_filter: Option<&[String]>,
 ) -> std::result::Result<GroupResetOutcome, kafka_backup_core::Error> {
+    let kafka_client = router.bootstrap_client();
     // Always fetch every committed offset of the group: an OffsetFetch for
     // named topics without partition indexes returns nothing, which turned
     // topic-filtered resets into silent no-ops. Filter afterwards instead.
@@ -761,7 +764,7 @@ async fn reset_consumer_group_with_mapping(
         )?
     } else {
         calculate_target_offsets(
-            kafka_client,
+            router,
             &current_offsets,
             &reset.spec.reset_strategy,
             reset.spec.reset_timestamp,
@@ -789,14 +792,85 @@ async fn reset_consumer_group_with_mapping(
 
     // Commit the new offsets
     let partitions_reset = offsets_tuples.len() as u32;
-    commit_offsets(kafka_client, group_id, &offsets_tuples).await?;
+    let results = commit_offsets(kafka_client, group_id, &offsets_tuples).await?;
+    ensure_offsets_committed(group_id, &results)?;
 
     Ok(GroupResetOutcome::Applied(partitions_reset))
 }
 
+/// Fail if the broker rejected any partition of an offset commit.
+///
+/// OffsetCommit reports errors per partition, so a successful call alone does
+/// not mean the offsets were written (#224).
+fn ensure_offsets_committed(
+    group_id: &str,
+    results: &[(String, i32, i16)],
+) -> std::result::Result<(), kafka_backup_core::Error> {
+    let rejected: Vec<String> = results
+        .iter()
+        .filter(|(_, _, code)| *code != 0)
+        .map(|(topic, partition, code)| format!("{topic}:{partition} (error code {code})"))
+        .collect();
+    if rejected.is_empty() {
+        return Ok(());
+    }
+    Err(kafka_backup_core::Error::Kafka(
+        kafka_backup_core::error::KafkaError::Protocol(format!(
+            "OffsetCommit for group {group_id} rejected {} of {} partitions: {}",
+            rejected.len(),
+            results.len(),
+            rejected.join(", ")
+        )),
+    ))
+}
+
+/// Partition offset lookups for the reset strategies. ListOffsets must reach
+/// each partition's leader; any other broker answers NOT_LEADER (#224).
+trait PartitionOffsetLookup {
+    /// Earliest and latest offset of a partition.
+    async fn earliest_and_latest(
+        &self,
+        topic: &str,
+        partition: i32,
+    ) -> std::result::Result<(i64, i64), kafka_backup_core::Error>;
+
+    /// ListOffsets result for `timestamp`; `None` if the lookup failed.
+    async fn offset_for_timestamp(
+        &self,
+        topic: &str,
+        partition: i32,
+        timestamp: i64,
+    ) -> std::result::Result<Option<i64>, kafka_backup_core::Error>;
+}
+
+impl PartitionOffsetLookup for PartitionLeaderRouter {
+    async fn earliest_and_latest(
+        &self,
+        topic: &str,
+        partition: i32,
+    ) -> std::result::Result<(i64, i64), kafka_backup_core::Error> {
+        self.get_offsets(topic, partition).await
+    }
+
+    async fn offset_for_timestamp(
+        &self,
+        topic: &str,
+        partition: i32,
+        timestamp: i64,
+    ) -> std::result::Result<Option<i64>, kafka_backup_core::Error> {
+        let leader = self.get_leader_client(topic, partition).await?;
+        let found =
+            offsets_for_times(&leader, &[(topic.to_string(), partition, timestamp)]).await?;
+        Ok(found
+            .first()
+            .filter(|o| o.error_code == 0)
+            .map(|o| o.offset))
+    }
+}
+
 /// Calculate target offsets based on reset strategy
 async fn calculate_target_offsets(
-    kafka_client: &KafkaClient,
+    lookup: &impl PartitionOffsetLookup,
     current_offsets: &[CommittedOffset],
     strategy: &OffsetResetStrategy,
     reset_timestamp: Option<i64>,
@@ -807,29 +881,22 @@ async fn calculate_target_offsets(
     for offset in current_offsets {
         let new_offset = match strategy {
             OffsetResetStrategy::ToEarliest => {
-                // Get earliest offset for partition
-                let (earliest, _) = kafka_client
-                    .get_offsets(&offset.topic, offset.partition)
+                let (earliest, _) = lookup
+                    .earliest_and_latest(&offset.topic, offset.partition)
                     .await?;
                 earliest
             }
             OffsetResetStrategy::ToLatest => {
-                // Get latest offset for partition
-                let (_, latest) = kafka_client
-                    .get_offsets(&offset.topic, offset.partition)
+                let (_, latest) = lookup
+                    .earliest_and_latest(&offset.topic, offset.partition)
                     .await?;
                 latest
             }
             OffsetResetStrategy::ToTimestamp => {
-                // Get offset for timestamp
-                // offsets_for_times takes &[(String, i32, i64)] - (topic, partition, timestamp)
                 let timestamp = reset_timestamp.unwrap_or(0);
-                let requests = vec![(offset.topic.clone(), offset.partition, timestamp)];
-                let timestamp_offsets = offsets_for_times(kafka_client, &requests).await?;
-                timestamp_offsets
-                    .first()
-                    .filter(|to| to.error_code == 0)
-                    .map(|to| to.offset)
+                lookup
+                    .offset_for_timestamp(&offset.topic, offset.partition, timestamp)
+                    .await?
                     .unwrap_or(offset.offset)
             }
             OffsetResetStrategy::ToOffset => {
@@ -1151,30 +1218,6 @@ mod issue49_tests {
     use super::*;
     use crate::crd::{KafkaClusterSpec, KafkaOffsetResetSpec, KafkaOffsetResetStatus};
 
-    fn disconnected_kafka_client() -> KafkaClient {
-        KafkaClient::new(CoreKafkaConfig {
-            bootstrap_servers: vec!["localhost:9092".to_string()],
-            security: SecurityConfig {
-                security_protocol: SecurityProtocol::Plaintext,
-                sasl_mechanism: None,
-                sasl_username: None,
-                sasl_password: None,
-                ssl_ca_location: None,
-                ssl_certificate_location: None,
-                ssl_key_location: None,
-                sasl_kerberos_service_name: None,
-                sasl_keytab_path: None,
-                sasl_krb5_config_path: None,
-                sasl_mechanism_plugin_factory: None,
-            },
-            topics: TopicSelection {
-                include: vec!["orders".to_string()],
-                exclude: vec![],
-            },
-            connection: Default::default(),
-        })
-    }
-
     fn reset_with_start_time(start_time: Option<chrono::DateTime<Utc>>) -> KafkaOffsetReset {
         let mut reset = KafkaOffsetReset::new(
             "issue49",
@@ -1207,6 +1250,32 @@ mod issue49_tests {
         reset
     }
 
+    /// Fails any partition offset lookup.
+    struct NoLeaders;
+
+    impl PartitionOffsetLookup for NoLeaders {
+        async fn earliest_and_latest(
+            &self,
+            topic: &str,
+            partition: i32,
+        ) -> std::result::Result<(i64, i64), kafka_backup_core::Error> {
+            Err(kafka_backup_core::Error::Config(format!(
+                "no leader for {topic}:{partition}"
+            )))
+        }
+
+        async fn offset_for_timestamp(
+            &self,
+            topic: &str,
+            partition: i32,
+            _timestamp: i64,
+        ) -> std::result::Result<Option<i64>, kafka_backup_core::Error> {
+            Err(kafka_backup_core::Error::Config(format!(
+                "no leader for {topic}:{partition}"
+            )))
+        }
+    }
+
     #[tokio::test]
     async fn from_mapping_strategy_must_not_fall_back_to_current_offsets() {
         let current_offsets = vec![CommittedOffset {
@@ -1218,7 +1287,7 @@ mod issue49_tests {
         }];
 
         let result = calculate_target_offsets(
-            &disconnected_kafka_client(),
+            &NoLeaders,
             &current_offsets,
             &OffsetResetStrategy::FromMapping,
             None,
@@ -1542,5 +1611,122 @@ mod issue49_tests {
             running_monitor_decision(&reset, Utc::now()),
             RunningMonitorDecision::MarkFailed
         );
+    }
+}
+
+#[cfg(test)]
+mod issue224_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// Offsets per partition, standing in for the partition leaders.
+    struct FakeLeaders {
+        /// partition -> (earliest, latest)
+        bounds: HashMap<i32, (i64, i64)>,
+        /// partition -> offset at the requested timestamp
+        at_timestamp: HashMap<i32, i64>,
+    }
+
+    impl PartitionOffsetLookup for FakeLeaders {
+        async fn earliest_and_latest(
+            &self,
+            _topic: &str,
+            partition: i32,
+        ) -> std::result::Result<(i64, i64), kafka_backup_core::Error> {
+            Ok(self.bounds[&partition])
+        }
+
+        async fn offset_for_timestamp(
+            &self,
+            _topic: &str,
+            partition: i32,
+            _timestamp: i64,
+        ) -> std::result::Result<Option<i64>, kafka_backup_core::Error> {
+            Ok(self.at_timestamp.get(&partition).copied())
+        }
+    }
+
+    fn leaders() -> FakeLeaders {
+        FakeLeaders {
+            bounds: HashMap::from([(0, (5, 50)), (1, (7, 70)), (2, (9, 90))]),
+            at_timestamp: HashMap::from([(0, 20), (2, 40)]),
+        }
+    }
+
+    fn committed(partitions: &[(i32, i64)]) -> Vec<CommittedOffset> {
+        partitions
+            .iter()
+            .map(|(p, o)| CommittedOffset {
+                topic: "orders".to_string(),
+                partition: *p,
+                offset: *o,
+                metadata: None,
+                error_code: 0,
+            })
+            .collect()
+    }
+
+    async fn targets(strategy: OffsetResetStrategy) -> Vec<(i32, i64)> {
+        calculate_target_offsets(
+            &leaders(),
+            &committed(&[(0, 30), (1, 30), (2, 30)]),
+            &strategy,
+            Some(1_700_000_000_000),
+            None,
+        )
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|o| (o.partition, o.offset))
+        .collect()
+    }
+
+    #[tokio::test]
+    async fn to_earliest_uses_each_partitions_log_start() {
+        assert_eq!(
+            targets(OffsetResetStrategy::ToEarliest).await,
+            vec![(0, 5), (1, 7), (2, 9)]
+        );
+    }
+
+    #[tokio::test]
+    async fn to_latest_uses_each_partitions_log_end() {
+        assert_eq!(
+            targets(OffsetResetStrategy::ToLatest).await,
+            vec![(0, 50), (1, 70), (2, 90)]
+        );
+    }
+
+    #[tokio::test]
+    async fn to_timestamp_keeps_the_committed_offset_when_no_record_matches() {
+        assert_eq!(
+            targets(OffsetResetStrategy::ToTimestamp).await,
+            vec![(0, 20), (1, 30), (2, 40)]
+        );
+    }
+
+    fn results(codes: &[(i32, i16)]) -> Vec<(String, i32, i16)> {
+        codes
+            .iter()
+            .map(|(p, c)| ("orders".to_string(), *p, *c))
+            .collect()
+    }
+
+    #[test]
+    fn commit_with_every_partition_accepted_succeeds() {
+        assert!(ensure_offsets_committed("payments", &results(&[(0, 0), (1, 0)])).is_ok());
+    }
+
+    #[test]
+    fn commit_with_a_rejected_partition_fails_and_names_it() {
+        // 16 = NOT_COORDINATOR: what a commit to the wrong broker used to return
+        // for every partition, while the reset still reported "Applied" (#224).
+        let err = ensure_offsets_committed("payments", &results(&[(0, 0), (1, 16)]))
+            .expect_err("a rejected partition must fail the group");
+
+        let message = err.to_string();
+        assert!(message.contains("payments"), "{message}");
+        assert!(message.contains("orders:1"), "{message}");
+        assert!(message.contains("16"), "{message}");
     }
 }
