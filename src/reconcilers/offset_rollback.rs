@@ -314,6 +314,7 @@ async fn execute_rollback_internal(
         status = ?rollback_result.status,
         "Rollback operation completed"
     );
+    ensure_rollback_succeeded(&rollback_result)?;
 
     // 3. Verify if requested
     let verified = if rollback.spec.verify_after_rollback {
@@ -347,6 +348,22 @@ async fn execute_rollback_internal(
         groups_rolled_back,
         verified,
     })
+}
+
+/// Fail unless every group in the snapshot was rolled back.
+///
+/// `rollback_offset_reset` reports per-group commit failures in its result
+/// rather than as an error, so the result has to be checked (#224).
+fn ensure_rollback_succeeded(result: &kafka_backup_core::RollbackResult) -> Result<()> {
+    if result.status == kafka_backup_core::RollbackStatus::Success {
+        return Ok(());
+    }
+    Err(Error::Rollback(format!(
+        "{} of {} groups failed to roll back: {}",
+        result.groups_failed,
+        result.groups_rolled_back + result.groups_failed,
+        result.errors.join("; ")
+    )))
 }
 
 /// Build kafka-backup-core SecurityConfig from resolved operator config
@@ -436,4 +453,51 @@ pub async fn update_status_failed(
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod issue224_tests {
+    use super::*;
+    use kafka_backup_core::{RollbackResult as CoreRollbackResult, RollbackStatus};
+
+    fn core_result(
+        status: RollbackStatus,
+        rolled_back: usize,
+        failed: usize,
+    ) -> CoreRollbackResult {
+        CoreRollbackResult {
+            status,
+            snapshot_id: "snap".to_string(),
+            groups_rolled_back: rolled_back,
+            groups_failed: failed,
+            offsets_restored: rolled_back as u64,
+            errors: (0..failed)
+                .map(|i| format!("g{i}:orders:0 - error code 16"))
+                .collect(),
+            duration_ms: 1,
+        }
+    }
+
+    #[test]
+    fn successful_rollback_is_accepted() {
+        assert!(ensure_rollback_succeeded(&core_result(RollbackStatus::Success, 3, 0)).is_ok());
+    }
+
+    #[test]
+    fn failed_rollback_fails_the_resource() {
+        // Before #224 every commit hit NOT_COORDINATOR, core reported Failed,
+        // and the resource still went to Completed ("Rolled back 0 groups").
+        let err = ensure_rollback_succeeded(&core_result(RollbackStatus::Failed, 0, 9))
+            .expect_err("a failed rollback must not complete");
+        let message = err.to_string();
+        assert!(message.contains("9"), "{message}");
+        assert!(message.contains("error code 16"), "{message}");
+    }
+
+    #[test]
+    fn partial_rollback_fails_the_resource() {
+        let err = ensure_rollback_succeeded(&core_result(RollbackStatus::PartialSuccess, 2, 1))
+            .expect_err("a partial rollback must not complete");
+        assert!(err.to_string().contains("1 of 3"), "{err}");
+    }
 }

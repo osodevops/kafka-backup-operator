@@ -6,7 +6,7 @@
 
 A Kubernetes operator for automated Kafka backup and disaster recovery. Built with Rust using [kube-rs](https://kube.rs/) for high performance and reliability.
 
-**Current release: v1.4.1** (embeds `kafka-backup-core` v0.23.1). See [Upgrade Notes](#upgrade-notes).
+**Current release: v1.4.2** (embeds `kafka-backup-core` v0.23.3). See [Upgrade Notes](#upgrade-notes).
 
 ## Features
 
@@ -85,6 +85,19 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 | `KafkaBackupValidation` | `kbv` | Validate backups and produce evidence reports |
 
 ## Upgrade Notes
+
+### 1.4.2
+
+Uses `kafka-backup-core` `v0.23.3`. CRD schemas are unchanged.
+
+- `KafkaOffsetReset` and `KafkaOffsetRollback` work on multi-broker clusters where the bootstrap broker
+  is not the consumer group's coordinator ([kafka-backup#224](https://github.com/osodevops/kafka-backup/issues/224)).
+  Before, such groups read as having no committed offsets (`No-op: offsets already at target`), and
+  `from-mapping` resets and rollbacks committed nothing while reporting success.
+- A reset whose commit the broker rejects now fails that group, and a rollback with failed groups ends
+  in `Failed` instead of `Completed`.
+- `to-earliest` / `to-latest` / `to-timestamp` look offsets up on each partition's leader instead of the
+  bootstrap broker, which failed with `NOT_LEADER_OR_FOLLOWER` for partitions it does not lead.
 
 ### 1.4.1
 

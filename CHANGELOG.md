@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.4.2 - 2026-10-07
+
+### Fixed
+
+- `KafkaOffsetReset` and `KafkaOffsetRollback` work on multi-broker clusters
+  where the bootstrap broker is not the consumer group's coordinator
+  ([kafka-backup#224](https://github.com/osodevops/kafka-backup/issues/224)).
+  Offsets were read from and committed to the bootstrap broker, which answers
+  `NOT_COORDINATOR` for every other group, so:
+  - `to-earliest` / `to-latest` / `to-timestamp` / `to-offset` resets saw no
+    committed offsets and completed as `No-op: offsets already at target`
+    without resetting anything;
+  - `from-mapping` resets and rollbacks committed nothing, yet the reset
+    reported the groups as reset and the rollback as `Completed`, with
+    verification passing.
+  Fixed in `kafka-backup-core` 0.23.3, which routes OffsetFetch and
+  OffsetCommit to the group coordinator.
+- `KafkaOffsetReset` fails a group when the broker rejects any partition of
+  its offset commit, instead of reporting it as reset.
+- `KafkaOffsetRollback` goes to `Failed` when any group fails to roll back,
+  instead of `Completed`.
+- `to-earliest` / `to-latest` / `to-timestamp` resets look offsets up on each
+  partition's leader. They asked the bootstrap broker, which fails with
+  `NOT_LEADER_OR_FOLLOWER` (error code 6) for partitions it does not lead.
+
+### Changed
+
+- `kafka-backup-core` 0.23.1 → 0.23.3.
+
 ## 1.4.1 - 2026-10-06
 
 ### Fixed
