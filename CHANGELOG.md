@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.4.4 - 2026-10-09
+
+### Fixed
+
+- A continuous `KafkaBackup` with `consumerGroupSnapshot: true` no longer
+  wipes its consumer-group snapshot when the storage read fails. Each cycle
+  checks whether a snapshot already exists before writing an empty one; a
+  failed check (S3 403, network error) was read as "no snapshot" and the
+  snapshot was replaced with an empty one. The (non-fatal) snapshot step now
+  fails and the stored snapshot is kept
+  ([kafka-backup#218](https://github.com/osodevops/kafka-backup/issues/218)).
+- Backup manifest saves fail instead of overwriting `manifest.json` when the
+  stored manifest can't be read (only a missing manifest is a first write),
+  and retention reports a failed manifest read instead of skipping silently.
+- Missing S3 objects are reported as "Object not found" rather than a
+  generic backend error, and the restore preflight reports an unreadable
+  consumer-groups snapshot as `unreadable` instead of `missing`.
+
+### Changed
+
+- `kafka-backup-core` 0.23.3 → 0.23.8.
+
 ## 1.4.3 - 2026-10-09
 
 ### Fixed
