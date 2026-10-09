@@ -21,7 +21,7 @@ use tracing::{error, info, warn};
 use crate::adapters::{
     build_kafka_config, default_tls_dir, to_core_connection_config, TlsFileManager,
 };
-use crate::crd::KafkaOffsetRollback;
+use crate::crd::{KafkaOffsetRollback, VerificationResult};
 use crate::error::{Error, Result};
 
 /// Validate the KafkaOffsetRollback spec
@@ -101,6 +101,7 @@ pub async fn execute(
         "status": {
             "phase": "Running",
             "message": "Offset rollback in progress",
+            "startTime": Utc::now(),
             "observedGeneration": rollback.metadata.generation,
         }
     });
@@ -125,27 +126,11 @@ pub async fn execute(
                 "Offset rollback completed"
             );
 
-            let completed_status = json!({
-                "status": {
-                    "phase": "Completed",
-                    "message": format!("Rolled back {} groups", result.groups_rolled_back),
-                    "groupsRolledBack": result.groups_rolled_back,
-                    "duration": format!("{:.2}s", duration.as_secs_f64()),
-                    "verified": result.verified,
-                    "observedGeneration": rollback.metadata.generation,
-                    "conditions": [{
-                        "type": "Ready",
-                        "status": "True",
-                        "lastTransitionTime": Utc::now(),
-                        "reason": "RollbackSucceeded",
-                        "message": format!("Rolled back {} groups", result.groups_rolled_back)
-                    }]
-                }
-            });
+            let finished = finished_status(&result, rollback.metadata.generation);
             api.patch_status(
                 &name,
                 &PatchParams::apply("kafka-backup-operator"),
-                &Patch::Merge(completed_status),
+                &Patch::Merge(finished),
             )
             .await?;
 
@@ -216,10 +201,70 @@ async fn execute_dry_run(
     Ok(Action::await_change())
 }
 
+/// Status patch for a rollback that ran to the end: `Completed`, or `Failed`
+/// when verification read back offsets that don't match the snapshot.
+///
+/// Only fields in the CRD's status schema: the API server prunes anything
+/// else, which is how `verified` and `duration` used to vanish.
+fn finished_status(result: &RollbackResult, generation: Option<i64>) -> serde_json::Value {
+    let groups = result.groups_rolled_back;
+    let (phase, ready, reason, message) = match &result.verification {
+        None => (
+            "Completed",
+            "True",
+            "RollbackSucceeded",
+            format!("Rolled back {groups} groups (not verified: verifyAfterRollback is false)"),
+        ),
+        Some(v) if v.verified => (
+            "Completed",
+            "True",
+            "RollbackSucceeded",
+            format!("Rolled back {groups} groups; offsets verified against the snapshot"),
+        ),
+        Some(v) => (
+            "Failed",
+            "False",
+            "VerificationFailed",
+            format!(
+                "Rolled back {groups} groups, but {} don't match the snapshot after the \
+                 rollback (a consumer may still be committing): {}",
+                v.groups_mismatched.len(),
+                v.groups_mismatched.join(", ")
+            ),
+        ),
+    };
+    let verification = result.verification.as_ref().map(|v| VerificationResult {
+        all_matched: v.verified,
+        total_groups: v.groups_verified.len() + v.groups_mismatched.len(),
+        matched_groups: v.groups_verified.len(),
+        mismatched_groups: v.groups_mismatched.clone(),
+    });
+
+    json!({
+        "status": {
+            "phase": phase,
+            "message": message,
+            "groupsRolledBack": groups,
+            "completionTime": Utc::now(),
+            // Explicit null when skipped clears a result from an earlier run.
+            "verification": verification,
+            "observedGeneration": generation,
+            "conditions": [{
+                "type": "Ready",
+                "status": ready,
+                "lastTransitionTime": Utc::now(),
+                "reason": reason,
+                "message": message
+            }]
+        }
+    })
+}
+
 /// Internal rollback execution result
 struct RollbackResult {
     groups_rolled_back: u32,
-    verified: bool,
+    /// `None` when `verifyAfterRollback` is false.
+    verification: Option<kafka_backup_core::VerificationResult>,
 }
 
 /// Execute the actual rollback using kafka-backup-core library
@@ -317,7 +362,7 @@ async fn execute_rollback_internal(
     ensure_rollback_succeeded(&rollback_result)?;
 
     // 3. Verify if requested
-    let verified = if rollback.spec.verify_after_rollback {
+    let verification = if rollback.spec.verify_after_rollback {
         info!(name = %name, "Verifying rollback");
 
         let verification = verify_rollback(&kafka_client, &snapshot)
@@ -332,21 +377,21 @@ async fn execute_rollback_internal(
             );
         }
 
-        verification.verified
+        Some(verification)
     } else {
-        false
+        None
     };
 
     info!(
         name = %name,
         groups_rolled_back = groups_rolled_back,
-        verified = verified,
+        verified = ?verification.as_ref().map(|v| v.verified),
         "Rollback completed"
     );
 
     Ok(RollbackResult {
         groups_rolled_back,
-        verified,
+        verification,
     })
 }
 
@@ -499,5 +544,119 @@ mod issue224_tests {
         let err = ensure_rollback_succeeded(&core_result(RollbackStatus::PartialSuccess, 2, 1))
             .expect_err("a partial rollback must not complete");
         assert!(err.to_string().contains("1 of 3"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod verification_status_tests {
+    use super::*;
+    use kafka_backup_core::VerificationResult as CoreVerification;
+    use kube::CustomResourceExt;
+    use serde_json::Value;
+
+    fn verification(matched: &[&str], mismatched: &[&str]) -> CoreVerification {
+        CoreVerification {
+            verified: mismatched.is_empty(),
+            groups_verified: matched.iter().map(|g| g.to_string()).collect(),
+            groups_mismatched: mismatched.iter().map(|g| g.to_string()).collect(),
+            mismatches: vec![],
+        }
+    }
+
+    fn result(groups: u32, verification: Option<CoreVerification>) -> RollbackResult {
+        RollbackResult {
+            groups_rolled_back: groups,
+            verification,
+        }
+    }
+
+    fn status(result: &RollbackResult) -> Value {
+        finished_status(result, Some(1))["status"].clone()
+    }
+
+    fn outcomes() -> Vec<(&'static str, RollbackResult)> {
+        vec![
+            ("verified", result(2, Some(verification(&["a", "b"], &[])))),
+            ("mismatch", result(2, Some(verification(&["a"], &["b"])))),
+            ("skipped", result(2, None)),
+        ]
+    }
+
+    /// Every field in `value` must exist in `schema`: the API server prunes
+    /// unknown status fields, so a field missing from the CRD never reaches
+    /// the user (`verified` and `duration` were dropped this way).
+    fn assert_in_schema(value: &Value, schema: &Value, path: &str) {
+        match value {
+            Value::Object(fields) => {
+                let Some(props) = schema.get("properties").and_then(Value::as_object) else {
+                    return;
+                };
+                for (key, v) in fields {
+                    let field = format!("{path}.{key}");
+                    let sub = props
+                        .get(key)
+                        .unwrap_or_else(|| panic!("{field} is not in the CRD schema"));
+                    assert_in_schema(v, sub, &field);
+                }
+            }
+            Value::Array(items) => {
+                if let Some(item_schema) = schema.get("items") {
+                    for item in items {
+                        assert_in_schema(item, item_schema, &format!("{path}[]"));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn status_only_uses_fields_in_the_crd_schema() {
+        let crd = serde_json::to_value(KafkaOffsetRollback::crd()).unwrap();
+        let schema =
+            &crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["status"];
+        for (outcome, result) in outcomes() {
+            assert_in_schema(&status(&result), schema, &format!("{outcome}: status"));
+        }
+    }
+
+    #[test]
+    fn verified_rollback_reports_the_verification() {
+        let status = status(&result(2, Some(verification(&["a", "b"], &[]))));
+        assert_eq!(status["phase"], "Completed");
+        assert_eq!(status["conditions"][0]["status"], "True");
+        assert_eq!(status["verification"]["allMatched"], true);
+        assert_eq!(status["verification"]["totalGroups"], 2);
+        assert_eq!(status["verification"]["matchedGroups"], 2);
+    }
+
+    #[test]
+    fn verification_mismatch_fails_the_resource() {
+        // The commit succeeded but the offsets read back don't match the
+        // snapshot (e.g. a live consumer committed over the rollback). This
+        // used to be "Completed" / Ready=True with the result pruned away.
+        let status = status(&result(2, Some(verification(&["a"], &["b"]))));
+        assert_eq!(status["phase"], "Failed");
+        assert_eq!(status["conditions"][0]["status"], "False");
+        assert_eq!(status["conditions"][0]["reason"], "VerificationFailed");
+        assert_eq!(status["verification"]["allMatched"], false);
+        assert_eq!(status["verification"]["matchedGroups"], 1);
+        assert_eq!(
+            status["verification"]["mismatchedGroups"],
+            serde_json::json!(["b"])
+        );
+        let message = status["message"].as_str().unwrap();
+        assert!(message.contains("b"), "{message}");
+    }
+
+    #[test]
+    fn skipped_verification_clears_the_verification_block() {
+        let status = status(&result(2, None));
+        assert_eq!(status["phase"], "Completed");
+        assert_eq!(status["conditions"][0]["status"], "True");
+        // Explicit null: a merge patch removes a result left by an earlier run.
+        assert_eq!(status.get("verification"), Some(&Value::Null));
+        let message = status["message"].as_str().unwrap();
+        assert!(message.contains("not verified"), "{message}");
     }
 }

@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.4.3 - 2026-10-09
+
+### Fixed
+
+- `KafkaOffsetRollback` reports its verification in `status.verification`
+  (`allMatched`, `totalGroups`, `matchedGroups`, `mismatchedGroups`). The
+  reconciler wrote a `verified` field the CRD doesn't define, so the API
+  server pruned it: the status looked the same whether verification passed,
+  failed or was skipped (`verifyAfterRollback: false`). Found while checking
+  [kafka-backup#220](https://github.com/osodevops/kafka-backup/issues/220).
+- `KafkaOffsetRollback` goes to `Failed` (`Ready=False`, reason
+  `VerificationFailed`) when verification finds groups whose offsets don't
+  match the snapshot after the rollback, e.g. a consumer still committing. It
+  used to go to `Completed`. The message lists the mismatched groups.
+- `KafkaOffsetRollback` records `status.startTime` and
+  `status.completionTime`. It wrote a `duration` field the CRD doesn't
+  define, which was pruned the same way.
+- With `verifyAfterRollback: false` the message says the rollback was not
+  verified, and a verification left by an earlier run is cleared.
+
+No CRD change: `status.verification`, `startTime` and `completionTime` were
+already in the schema, so this works with CRDs installed by earlier charts.
+
 ## 1.4.2 - 2026-10-07
 
 ### Fixed
