@@ -6,7 +6,7 @@
 
 A Kubernetes operator for automated Kafka backup and disaster recovery. Built with Rust using [kube-rs](https://kube.rs/) for high performance and reliability.
 
-**Current release: v1.4.2** (embeds `kafka-backup-core` v0.23.3). See [Upgrade Notes](#upgrade-notes).
+**Release candidate: v1.4.5** (embeds `kafka-backup-core` v0.25.2). See [Upgrade Notes](#upgrade-notes).
 
 ## Features
 

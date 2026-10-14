@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.5 - 2026-10-14
+
+### Fixed
+
+- Update the embedded core from 0.23.8 to 0.25.2. Backups now use read-committed isolation, excluding aborted transaction records and control markers. Durable checkpoints stay behind persisted data, and restores retry transient partition-leader readiness errors.
+- Enable broker de-duplication for restores with the default `produceAcks: -1`; explicit acks 0/1 keep their existing behaviour. Azure authentication fixes and the current transport security patches are included. The Prometheus/Protobuf dependency and locked bytes version are updated to clear their vulnerability findings.
+
+The operator remains the open-source engine. Enterprise Kafka OAuth and Schema Registry recovery run through the Enterprise image and chart, and are not operator CRD features.
+
 ## 1.4.4 - 2026-10-09
 
 ### Fixed

@@ -91,6 +91,17 @@ fn core_backup(resolved: &ResolvedBackupConfig) -> Config {
     to_core_backup_config(resolved, BACKUP_ID, None).expect("core config builds")
 }
 
+#[tokio::test]
+async fn operator_backups_exclude_aborted_transactions_by_default() {
+    let options = core_backup(&resolved_backup(json!({})).await)
+        .backup
+        .unwrap();
+    assert_eq!(
+        options.isolation_level,
+        kafka_backup_core::config::IsolationLevel::ReadCommitted
+    );
+}
+
 fn s3(prefix: Option<&str>) -> ResolvedStorage {
     ResolvedStorage::S3(S3StorageConfig {
         bucket: "backups".to_string(),
@@ -308,6 +319,16 @@ async fn restore_circuit_breaker_spec_reaches_core() {
     }}))
     .await;
     assert_breaker(&restore.circuit_breaker, (true, 9, 5_000, 1));
+}
+
+#[tokio::test]
+async fn default_restore_uses_broker_deduplication_and_keeps_ack_opt_outs_valid() {
+    assert!(core_restore(json!({})).await.idempotent_producer);
+    for acks in [0, 1] {
+        let options = core_restore(json!({"produceAcks": acks})).await;
+        assert!(!options.idempotent_producer);
+        assert_eq!(options.produce_acks, acks);
+    }
 }
 
 #[tokio::test]

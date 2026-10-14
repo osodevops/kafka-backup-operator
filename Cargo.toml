@@ -1,6 +1,6 @@
 [package]
 name = "kafka-backup-operator"
-version = "1.4.4"
+version = "1.4.5"
 edition = "2021"
 authors = ["OSO DevOps <dev@oso.sh>"]
 description = "Kubernetes Operator for OSO Kafka Backup"
@@ -12,7 +12,7 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 # Core backup library
-kafka-backup-core = "0.23.8"
+kafka-backup-core = "0.25.2"
 
 # Kubernetes
 kube = { version = "0.95", features = ["runtime", "derive", "client"] }
@@ -47,10 +47,10 @@ thiserror = "1.0"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 
 # TLS: pins the process-default crypto provider (see `install_crypto_provider`)
-rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std"] }
 
 # Metrics
-prometheus = "0.13"
+prometheus = "0.14"
 hyper = { version = "1.9", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
