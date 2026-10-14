@@ -417,12 +417,15 @@ mod tests {
         let families = prometheus::gather();
         let build_info = families
             .iter()
-            .find(|f| f.get_name() == "kafka_backup_operator_build_info")
+            .find(|f| f.name() == "kafka_backup_operator_build_info")
             .expect("build_info registered");
 
-        let metric = &build_info.get_metric()[0];
-        assert_eq!(metric.get_gauge().get_value(), 1.0);
-        assert_eq!(metric.get_label()[0].get_value(), env!("CARGO_PKG_VERSION"));
+        let metric = &build_info.metric[0];
+        assert_eq!(
+            metric.gauge.as_ref().expect("build-info gauge").value(),
+            1.0
+        );
+        assert_eq!(metric.label[0].value(), env!("CARGO_PKG_VERSION"));
     }
 
     #[test]
@@ -440,16 +443,16 @@ mod tests {
 
         let families = prometheus::gather();
         for family in &families {
-            if !family.get_name().starts_with("kafka_backup_operator_") {
+            if !family.name().starts_with("kafka_backup_operator_") {
                 continue;
             }
-            for metric in family.get_metric() {
-                for label in metric.get_label() {
+            for metric in &family.metric {
+                for label in &metric.label {
                     assert_ne!(
-                        label.get_name(),
+                        label.name(),
                         "namespace",
                         "{} must not expose a `namespace` label",
-                        family.get_name()
+                        family.name()
                     );
                 }
             }

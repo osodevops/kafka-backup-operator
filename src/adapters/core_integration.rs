@@ -287,6 +287,8 @@ pub fn to_core_storage_config(resolved: &ResolvedStorage) -> StorageBackendConfi
                 prefix: azure.prefix.clone(),
                 endpoint: azure.endpoint.clone(),
                 use_workload_identity,
+                use_emulator: false,
+                allow_http: false,
                 client_id,
                 tenant_id,
                 client_secret,
@@ -350,6 +352,7 @@ fn to_core_backup_options(resolved: &ResolvedBackupConfig) -> BackupOptions {
         compression,
         compression_level: resolved.compression.level,
         start_offset: kafka_backup_core::config::StartOffset::Earliest,
+        isolation_level: kafka_backup_core::config::IsolationLevel::ReadCommitted,
         continuous: resolved.backup_options.continuous,
         include_internal_topics: false,
         internal_topics: vec![],
@@ -373,6 +376,7 @@ fn to_core_backup_options(resolved: &ResolvedBackupConfig) -> BackupOptions {
         // core's in-backup segment pruning stays off.
         retention: None,
         circuit_breaker: to_core_circuit_breaker(resolved.circuit_breaker.as_ref()),
+        shutdown_grace_secs: BackupOptions::default().shutdown_grace_secs,
     }
 }
 
@@ -484,10 +488,16 @@ fn to_core_restore_options(resolved: &ResolvedRestoreConfig) -> RestoreOptions {
         rate_limit_bytes_per_sec,
         max_concurrent_partitions,
         produce_batch_size: resolved.produce_batch_size,
+        produce_max_batch_bytes: RestoreOptions::default().produce_max_batch_bytes,
+        // Broker de-duplication needs all-replica acknowledgements. Preserve
+        // the existing CRD opt-out for acks=0/1.
+        idempotent_producer: resolved.produce_acks == -1,
         produce_acks: resolved.produce_acks,
         produce_timeout_ms: resolved.produce_timeout_ms,
         checkpoint_state: None,
         checkpoint_interval_secs: 60,
+        checkpoint_storage: Default::default(),
+        restore_id: None,
         consumer_groups,
         reset_consumer_offsets,
         offset_report: None,
@@ -501,8 +511,13 @@ fn to_core_restore_options(resolved: &ResolvedRestoreConfig) -> RestoreOptions {
         restore_topic_configs: true,
         existing_topic_config_policy: ExistingTopicConfigPolicy::ValidateOnly,
         topic_config_overrides: Default::default(),
+        unsupported_config_policy: Default::default(),
+        target_profile: None,
+        target_cluster_type: None,
         rewrite_schema_ids: false,
         schema_id_mapping: Default::default(),
+        schema_id_rewrite_topics: vec![],
+        schema_id_rewrite_strict: true,
         header_preflight: match resolved.header_preflight {
             HeaderPreflightPolicy::Auto => HeaderPreflightMode::Auto,
             HeaderPreflightPolicy::Full => HeaderPreflightMode::Full,
@@ -512,6 +527,7 @@ fn to_core_restore_options(resolved: &ResolvedRestoreConfig) -> RestoreOptions {
         dry_run_check_segments: false,
         record_filter: None,
         record_filter_fingerprint: None,
+        record_transform: None,
         circuit_breaker: to_core_circuit_breaker(resolved.circuit_breaker.as_ref()),
     }
 }

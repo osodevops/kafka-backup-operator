@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use chrono::Utc;
 use kafka_backup_core::config::KafkaConfig as CoreKafkaConfig;
-use kafka_backup_core::config::{SaslMechanism, SecurityConfig, SecurityProtocol, TopicSelection};
+use kafka_backup_core::config::{
+    IsolationLevel, SaslMechanism, SecurityConfig, SecurityProtocol, TopicSelection,
+};
 use kafka_backup_core::kafka::consumer_groups::{
     commit_offsets, fetch_offsets, offsets_for_times, CommittedOffset,
 };
@@ -849,7 +851,8 @@ impl PartitionOffsetLookup for PartitionLeaderRouter {
         topic: &str,
         partition: i32,
     ) -> std::result::Result<(i64, i64), kafka_backup_core::Error> {
-        self.get_offsets(topic, partition).await
+        self.get_offsets(topic, partition, IsolationLevel::ReadUncommitted)
+            .await
     }
 
     async fn offset_for_timestamp(
@@ -859,8 +862,12 @@ impl PartitionOffsetLookup for PartitionLeaderRouter {
         timestamp: i64,
     ) -> std::result::Result<Option<i64>, kafka_backup_core::Error> {
         let leader = self.get_leader_client(topic, partition).await?;
-        let found =
-            offsets_for_times(&leader, &[(topic.to_string(), partition, timestamp)]).await?;
+        let found = offsets_for_times(
+            &leader,
+            &[(topic.to_string(), partition, timestamp)],
+            IsolationLevel::ReadUncommitted,
+        )
+        .await?;
         Ok(found
             .first()
             .filter(|o| o.error_code == 0)
