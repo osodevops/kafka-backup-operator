@@ -170,6 +170,13 @@ spec:
                         format: uint64
                         minimum: 0.0
                         type: integer
+                      produceApiVersion:
+                        description: Produce API version to send, 3 to 8 (default 8). The client does not negotiate it, so set it for a broker with a lower maximum. Redpanda needs 7.
+                        format: int16
+                        maximum: 8.0
+                        minimum: 3.0
+                        nullable: true
+                        type: integer
                       tcpKeepalive:
                         default: true
                         description: Enable TCP keepalive
@@ -1073,6 +1080,13 @@ spec:
                         format: uint64
                         minimum: 0.0
                         type: integer
+                      produceApiVersion:
+                        description: Produce API version to send, 3 to 8 (default 8). The client does not negotiate it, so set it for a broker with a lower maximum. Redpanda needs 7.
+                        format: int16
+                        maximum: 8.0
+                        minimum: 3.0
+                        nullable: true
+                        type: integer
                       tcpKeepalive:
                         default: true
                         description: Enable TCP keepalive
@@ -1528,6 +1542,13 @@ spec:
                         format: uint64
                         minimum: 0.0
                         type: integer
+                      produceApiVersion:
+                        description: Produce API version to send, 3 to 8 (default 8). The client does not negotiate it, so set it for a broker with a lower maximum. Redpanda needs 7.
+                        format: int16
+                        maximum: 8.0
+                        minimum: 3.0
+                        nullable: true
+                        type: integer
                       tcpKeepalive:
                         default: true
                         description: Enable TCP keepalive
@@ -1853,6 +1874,13 @@ spec:
                         description: Time in seconds before the first keepalive probe
                         format: uint64
                         minimum: 0.0
+                        type: integer
+                      produceApiVersion:
+                        description: Produce API version to send, 3 to 8 (default 8). The client does not negotiate it, so set it for a broker with a lower maximum. Redpanda needs 7.
+                        format: int16
+                        maximum: 8.0
+                        minimum: 3.0
+                        nullable: true
                         type: integer
                       tcpKeepalive:
                         default: true
@@ -2668,6 +2696,13 @@ spec:
                         description: Time in seconds before the first keepalive probe
                         format: uint64
                         minimum: 0.0
+                        type: integer
+                      produceApiVersion:
+                        description: Produce API version to send, 3 to 8 (default 8). The client does not negotiate it, so set it for a broker with a lower maximum. Redpanda needs 7.
+                        format: int16
+                        maximum: 8.0
+                        minimum: 3.0
+                        nullable: true
                         type: integer
                       tcpKeepalive:
                         default: true
