@@ -36,8 +36,9 @@ pub fn to_core_backup_config(
     backup_id: &str,
     tls_manager: Option<&TlsFileManager>,
 ) -> kafka_backup_core::Result<Config> {
-    let kafka_config =
+    let mut kafka_config =
         to_core_kafka_config_with_tls(&resolved.kafka, &resolved.topics, tls_manager);
+    kafka_config.topics.exclude = resolved.exclude_topics.clone();
     let storage_config = to_core_storage_config(&resolved.storage);
     let backup_options = to_core_backup_options(resolved);
 

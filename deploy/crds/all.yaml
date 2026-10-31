@@ -117,6 +117,11 @@ spec:
                 default: false
                 description: Run continuously instead of completing after one pass
                 type: boolean
+              excludeTopics:
+                description: 'Topics to leave out, names or globs (* and ?). Applied after `topics`, so `topics: ["*"]` with an exclude list also backs up every topic created later.'
+                items:
+                  type: string
+                type: array
               includeOffsetHeaders:
                 default: true
                 description: 'Add `x-original-offset` / `x-original-timestamp` headers to every archived record (Phase 1 of the three-phase restore). Default: true. Set to false for an archive whose records carry only their original headers.'

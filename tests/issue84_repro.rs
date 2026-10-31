@@ -92,6 +92,22 @@ fn core_backup(resolved: &ResolvedBackupConfig) -> Config {
 }
 
 #[tokio::test]
+async fn exclude_topics_reach_the_core_selection() {
+    let core = core_backup(
+        &resolved_backup(json!({"topics": ["*"], "excludeTopics": ["metrics", "syslog-*"]})).await,
+    );
+    let selection = core.source.unwrap().topics;
+    assert_eq!(selection.include, vec!["*"]);
+    assert_eq!(selection.exclude, vec!["metrics", "syslog-*"]);
+}
+
+#[tokio::test]
+async fn nothing_is_excluded_by_default() {
+    let core = core_backup(&resolved_backup(json!({})).await);
+    assert!(core.source.unwrap().topics.exclude.is_empty());
+}
+
+#[tokio::test]
 async fn operator_backups_exclude_aborted_transactions_by_default() {
     let options = core_backup(&resolved_backup(json!({})).await)
         .backup
