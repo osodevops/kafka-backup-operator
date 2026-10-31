@@ -30,6 +30,11 @@ pub struct KafkaBackupSpec {
     /// Topics to backup
     pub topics: Vec<String>,
 
+    /// Topics to leave out, names or globs (* and ?). Applied after `topics`, so
+    /// `topics: ["*"]` with an exclude list also backs up every topic created later.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclude_topics: Vec<String>,
+
     /// What to do when a literal (non-glob) entry in `topics` does not exist in
     /// the cluster: `fail` (default) fails the backup; `warn` skips it, records
     /// it in the manifest's `missing_topics` and the `kafka_backup_missing_topics`

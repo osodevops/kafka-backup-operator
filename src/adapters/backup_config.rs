@@ -20,6 +20,8 @@ pub struct ResolvedBackupConfig {
     pub kafka: ResolvedKafkaConfig,
     /// Topics to backup
     pub topics: Vec<String>,
+    /// Topics to leave out
+    pub exclude_topics: Vec<String>,
     /// Storage configuration
     pub storage: ResolvedStorage,
     /// Compression settings
@@ -187,6 +189,7 @@ pub async fn build_backup_config(
     Ok(ResolvedBackupConfig {
         kafka,
         topics: backup.spec.topics.clone(),
+        exclude_topics: backup.spec.exclude_topics.clone(),
         storage,
         compression,
         checkpoint,
