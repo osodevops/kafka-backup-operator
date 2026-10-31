@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `KafkaBackup.spec.excludeTopics` leaves topics out of a backup, by name or glob. With `topics: ["*"]` every topic created later is backed up unless it is excluded.
+
 ## 1.4.6 - 2026-11-03
 
 ### Fixed
