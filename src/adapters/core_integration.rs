@@ -152,6 +152,7 @@ pub fn to_core_connection_config(resolved: &ResolvedKafkaConfig) -> ConnectionCo
         keepalive_interval_secs: resolved.connection.keepalive_interval_secs,
         tcp_nodelay: resolved.connection.tcp_nodelay,
         connections_per_broker: resolved.connection.connections_per_broker,
+        produce_api_version: resolved.connection.produce_api_version,
     }
 }
 

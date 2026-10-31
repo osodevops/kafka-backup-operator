@@ -54,6 +54,7 @@ pub struct ResolvedKafkaConnectionConfig {
     pub keepalive_interval_secs: u64,
     pub tcp_nodelay: bool,
     pub connections_per_broker: usize,
+    pub produce_api_version: Option<i16>,
 }
 
 impl Default for ResolvedKafkaConnectionConfig {
@@ -64,6 +65,7 @@ impl Default for ResolvedKafkaConnectionConfig {
             keepalive_interval_secs: 20,
             tcp_nodelay: true,
             connections_per_broker: 4,
+            produce_api_version: None,
         }
     }
 }
@@ -271,6 +273,7 @@ fn build_connection_config(connection: &KafkaConnectionSpec) -> ResolvedKafkaCon
         keepalive_interval_secs: connection.keepalive_interval_secs,
         tcp_nodelay: connection.tcp_nodelay,
         connections_per_broker: connection.connections_per_broker,
+        produce_api_version: connection.produce_api_version,
     }
 }
 
@@ -318,5 +321,36 @@ fn build_metrics_config(metrics: &MetricsSpec) -> ResolvedMetricsConfig {
         path: metrics.path.clone(),
         update_interval_ms: metrics.update_interval_ms,
         max_partition_labels: metrics.max_partition_labels,
+    }
+}
+
+#[cfg(test)]
+mod produce_api_version_tests {
+    use super::*;
+
+    fn connection(spec: serde_json::Value) -> ResolvedKafkaConnectionConfig {
+        build_connection_config(&serde_json::from_value(spec).unwrap())
+    }
+
+    #[test]
+    fn unset_by_default() {
+        assert_eq!(
+            ResolvedKafkaConnectionConfig::default().produce_api_version,
+            None
+        );
+        assert_eq!(connection(serde_json::json!({})).produce_api_version, None);
+    }
+
+    #[test]
+    fn spec_value_reaches_core_config() {
+        let resolved = ResolvedKafkaConfig {
+            bootstrap_servers: vec!["broker:9092".to_string()],
+            security_protocol: "PLAINTEXT".to_string(),
+            tls: None,
+            sasl: None,
+            connection: connection(serde_json::json!({ "produceApiVersion": 7 })),
+        };
+        let core = crate::adapters::core_integration::to_core_connection_config(&resolved);
+        assert_eq!(core.produce_api_version, Some(7));
     }
 }

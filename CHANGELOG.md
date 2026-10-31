@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `kafkaCluster.connection.produceApiVersion` sets the Produce API version the operator sends (3 to 8, default 8). Redpanda accepts up to version 7, so restores to Redpanda need `produceApiVersion: 7`; without it every topic fails with `early eof`.
+
 ## 1.4.5 - 2026-10-14
 
 ### Fixed
