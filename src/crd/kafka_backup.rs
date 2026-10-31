@@ -204,6 +204,12 @@ pub struct KafkaConnectionSpec {
     /// Number of TCP connections to maintain per broker
     #[serde(default = "default_connections_per_broker")]
     pub connections_per_broker: usize,
+
+    /// Produce API version to send, 3 to 8 (default 8). The client does not negotiate it, so
+    /// set it for a broker with a lower maximum. Redpanda needs 7.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 3, max = 8))]
+    pub produce_api_version: Option<i16>,
 }
 
 fn default_keepalive_time_secs() -> u64 {

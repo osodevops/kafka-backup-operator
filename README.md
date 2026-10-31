@@ -194,6 +194,7 @@ This release aligns the operator CRDs and adapters with `kafka-backup-core` `v0.
 - `KafkaRestore` now exposes `repartitioning`, `produceAcks`, `produceTimeoutMs`, and `purgeTopics`.
 - S3-compatible endpoints can use `storage.s3.pathStyle` and `storage.s3.allowHttp`; `allowHttp` logs a warning because it may enable plaintext object storage traffic.
 - `kafkaCluster.connection.connectionsPerBroker` can be tuned on backup, restore, validation, offset reset, and offset rollback resources.
+- `kafkaCluster.connection.produceApiVersion` sets the Produce API version the operator sends (3 to 8, default 8). Restores to Redpanda need `7`.
 - Azure storage authentication validation now accepts the adapter-supported methods: workload identity, service principal, SAS token, account key, or default credential fallback.
 
 ## Configuration Examples
