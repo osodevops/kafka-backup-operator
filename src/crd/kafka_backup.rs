@@ -205,14 +205,15 @@ pub struct KafkaConnectionSpec {
     #[serde(default = "default_connections_per_broker")]
     pub connections_per_broker: usize,
 
-    /// Produce API version to send, 3 to 8 (unset: 8). Only Produce requests follow it, so it
+    /// Produce API version to send, 7 or 8 (unset: 8). Only Produce requests follow it, so it
     /// matters for `KafkaRestore`; the other resources accept and ignore it. The client does not
     /// negotiate API versions yet (`ApiVersions`), so set it for a target broker whose maximum is
-    /// lower: Redpanda accepts up to 7 and drops the connection on 8, which surfaces as `early
-    /// eof` on every topic. Versions 7 and 8 send the same request (8 only adds per-record error
-    /// detail to the response); below 7 brokers reject zstd-compressed batches.
+    /// lower: Redpanda advertises Produce 0..7 and drops the connection on 8, which surfaces as
+    /// `early eof` on every topic. Versions 7 and 8 send the same request (8 only adds per-record
+    /// error detail to the response). Versions below 7 are rejected: every batch the client
+    /// produces is zstd-compressed, which brokers accept from Produce version 7.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(range(min = 3, max = 8))]
+    #[schemars(range(min = 7, max = 8))]
     pub produce_api_version: Option<i16>,
 }
 
