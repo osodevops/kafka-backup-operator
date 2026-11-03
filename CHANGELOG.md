@@ -4,7 +4,7 @@
 
 ### Added
 
-- `kafkaCluster.connection.produceApiVersion` sets the Produce API version the operator sends (3 to 8, default 8). Redpanda accepts up to version 7, so restores to Redpanda need `produceApiVersion: 7`; without it every topic fails with `early eof`.
+- `kafkaCluster.connection.produceApiVersion` (3 to 8, unset: 8) sets the Produce API version the operator sends. Only Produce requests follow it, so it matters for `KafkaRestore`; the other resources accept and ignore it. The client does not negotiate API versions yet, so set it for a target broker whose maximum is lower: Redpanda accepts up to 7 and drops the connection on 8, and every topic of the restore then fails with `early eof`. Below 7 brokers reject zstd-compressed batches. Requires a `kafka-backup-core` release that includes [kafka-backup#241](https://github.com/osodevops/kafka-backup/pull/241).
 
 ## 1.5.0 - 2026-11-03
 

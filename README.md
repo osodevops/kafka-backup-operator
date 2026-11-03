@@ -86,6 +86,17 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 
 ## Upgrade Notes
 
+### Unreleased
+
+Requires a `kafka-backup-core` release that includes
+[kafka-backup#241](https://github.com/osodevops/kafka-backup/pull/241).
+
+- `kafkaCluster.connection.produceApiVersion` (3 to 8, unset: 8) sets the Produce API version the
+  operator sends. Only Produce requests follow it, so it matters for `KafkaRestore`; the other resources
+  accept and ignore it. The client does not negotiate API versions yet, so set it for a target broker
+  whose maximum is lower: Redpanda accepts up to 7 and drops the connection on 8 (every topic of the
+  restore fails with `early eof`). Below 7 brokers reject zstd-compressed batches.
+
 ### 1.5.0
 
 Uses `kafka-backup-core` `v0.25.2`. The `KafkaBackup` CRD schema changes: apply the updated CRDs before
@@ -194,7 +205,6 @@ This release aligns the operator CRDs and adapters with `kafka-backup-core` `v0.
 - `KafkaRestore` now exposes `repartitioning`, `produceAcks`, `produceTimeoutMs`, and `purgeTopics`.
 - S3-compatible endpoints can use `storage.s3.pathStyle` and `storage.s3.allowHttp`; `allowHttp` logs a warning because it may enable plaintext object storage traffic.
 - `kafkaCluster.connection.connectionsPerBroker` can be tuned on backup, restore, validation, offset reset, and offset rollback resources.
-- `kafkaCluster.connection.produceApiVersion` sets the Produce API version the operator sends (3 to 8, default 8). Restores to Redpanda need `7`.
 - Azure storage authentication validation now accepts the adapter-supported methods: workload identity, service principal, SAS token, account key, or default credential fallback.
 
 ## Configuration Examples
