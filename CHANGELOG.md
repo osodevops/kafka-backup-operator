@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.4.6 - 2026-11-03
+
+### Fixed
+
+- Scheduled backups with `checkpoint.enabled: true` (the documented
+  incremental scheduled backup configuration) are now incremental. The
+  operator generated a new `{name}-{YYYYMMDD-HHMMSS}` backup ID on every run,
+  but the engine resumes from `{backupId}/offsets.db` and merges into
+  `{backupId}/manifest.json`, so no run could find the previous run's
+  checkpoint and every run was a full backup from the earliest offset. A
+  non-continuous `KafkaBackup` with checkpointing enabled now writes every run
+  into one backup set named after the resource and resumes from its stored
+  checkpoint: `status.backupId` equals the resource name, the manifest lists
+  the segments of all runs, and `status.resumable` (defined but never set
+  before) reports the mode. Backups without a `checkpoint` block (or with
+  `enabled: false`) and continuous backups keep a timestamped backup set per
+  run, as before
+  ([#94](https://github.com/osodevops/kafka-backup-operator/issues/94)).
+- Retention always keeps the stable backup set (it is the current set of
+  every run, so neither `maxAgeDays` nor `keepLast` prunes it); timestamped
+  sets written by earlier full runs stay owned by the resource and age out
+  under the policy.
+
 ## 1.4.5 - 2026-10-14
 
 ### Fixed

@@ -327,7 +327,7 @@ async fn discover_backup_sets(
     Ok(backup_sets)
 }
 
-fn is_owned_backup_id(backup_name: &str, backup_id: &str) -> bool {
+pub(crate) fn is_owned_backup_id(backup_name: &str, backup_id: &str) -> bool {
     if backup_id == backup_name {
         return true;
     }
@@ -566,6 +566,52 @@ mod tests {
         let planned = plan_deletions(&backups, &retention(None, Some(1)), Some("backup-1"), 100);
 
         assert_eq!(planned, vec!["backup-2".to_string()]);
+    }
+
+    /// Issue #94: an incremental backup writes every run into one backup set
+    /// named after the resource, whose manifest keeps the first run's
+    /// `created_at`. It is always the current set, so neither `maxAgeDays`
+    /// nor `keepLast` may ever delete it.
+    #[test]
+    fn planner_never_ages_out_the_stable_incremental_backup_set() {
+        let day_ms = 86_400_000;
+        let now = 400 * day_ms;
+        let backups = vec![backup_set("orders-hourly", 1)];
+
+        let planned = plan_deletions(
+            &backups,
+            &retention(Some(30), Some(1)),
+            Some("orders-hourly"),
+            now,
+        );
+
+        assert!(planned.is_empty(), "{planned:?}");
+    }
+
+    /// After upgrading to the stable ID, the timestamped sets written by
+    /// earlier full runs are still owned by the resource and age out under
+    /// the policy while the stable set stays.
+    #[test]
+    fn planner_prunes_legacy_timestamped_sets_but_keeps_the_stable_set() {
+        let backups = vec![
+            backup_set("orders-hourly-20261101-010000", 1),
+            backup_set("orders-hourly-20261101-020000", 2),
+            backup_set("orders-hourly", 3),
+        ];
+
+        let planned = plan_deletions(
+            &backups,
+            &retention(None, Some(2)),
+            Some("orders-hourly"),
+            100,
+        );
+
+        assert_eq!(planned, vec!["orders-hourly-20261101-010000".to_string()]);
+        assert!(is_owned_backup_id("orders-hourly", "orders-hourly"));
+        assert!(is_owned_backup_id(
+            "orders-hourly",
+            "orders-hourly-20261101-010000"
+        ));
     }
 
     #[test]

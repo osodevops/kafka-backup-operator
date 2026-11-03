@@ -319,6 +319,41 @@ fn should_run_backup(backup: &KafkaBackup, schedule: &Schedule, now: DateTime<Ut
         .unwrap_or(false)
 }
 
+/// Whether runs of this backup resume one backup set instead of each
+/// writing a standalone full backup.
+///
+/// The engine resumes from `{backup_id}/offsets.db` and merges into
+/// `{backup_id}/manifest.json`, so this is exactly the set of backups that
+/// must keep one backup ID across runs (issue #94): checkpointing is on and
+/// the backup is not continuous. A continuous backup is a single long-running
+/// engine that tracks offsets itself; each (re)start is a new backup set.
+/// This is the same predicate core uses for its incremental one-shot mode
+/// (`offset_storage` set and `continuous: false`) and the one the Strimzi
+/// operator applies.
+pub fn is_incremental(backup: &KafkaBackup) -> bool {
+    !backup.spec.continuous
+        && backup
+            .spec
+            .checkpoint
+            .as_ref()
+            .is_some_and(|checkpoint| checkpoint.enabled)
+}
+
+/// The backup set a run of this backup writes to.
+///
+/// Incremental backups (see [`is_incremental`]) always use the resource name,
+/// so every run finds the checkpoint and manifest the previous run stored.
+/// Any other run gets its own `{name}-{YYYYMMDD-HHMMSS}` set, which is the
+/// form retention recognises as operator-owned.
+pub fn backup_id_for(backup: &KafkaBackup, now: DateTime<Utc>) -> String {
+    let name = backup.name_any();
+    if is_incremental(backup) {
+        name
+    } else {
+        format!("{}-{}", name, now.format("%Y%m%d-%H%M%S"))
+    }
+}
+
 /// Execute a backup operation
 async fn execute_backup(backup: &KafkaBackup, client: &Client, namespace: &str) -> Result<Action> {
     let name = backup.name_any();
@@ -385,6 +420,7 @@ async fn execute_backup(backup: &KafkaBackup, client: &Client, namespace: &str) 
                     "bytesProcessed": result.bytes_processed,
                     "segmentsCompleted": result.segments_completed,
                     "backupId": result.backup_id,
+                    "resumable": is_incremental(backup),
                     "observedGeneration": backup.metadata.generation,
                     "conditions": [{
                         "type": "Ready",
@@ -507,10 +543,14 @@ async fn execute_backup_internal(
 ) -> Result<BackupResult> {
     let name = backup.name_any();
 
-    // Generate unique backup ID
-    let backup_id = format!("{}-{}", name, Utc::now().format("%Y%m%d-%H%M%S"));
+    let backup_id = backup_id_for(backup, Utc::now());
 
-    info!(name = %name, backup_id = %backup_id, "Building backup configuration");
+    info!(
+        name = %name,
+        backup_id = %backup_id,
+        incremental = is_incremental(backup),
+        "Building backup configuration"
+    );
 
     // 1. Build resolved configuration from CRD spec using adapters
     let resolved_config = build_backup_config(backup, client, namespace).await?;
@@ -665,6 +705,7 @@ pub async fn update_status_ready(
             "nextScheduledBackup": next_backup,
             "observedGeneration": backup.metadata.generation,
             "checkpointEnabled": backup.spec.checkpoint.as_ref().map(|c| c.enabled).unwrap_or(true),
+            "resumable": is_incremental(backup),
             "conditions": [{
                 "type": "Ready",
                 "status": "True",
@@ -911,5 +952,147 @@ mod should_run_backup_tests {
         };
         let pending_backup = make_backup(at(9, 0, 0), Some(pending_status));
         assert!(should_execute_one_shot_backup(&pending_backup));
+    }
+}
+
+#[cfg(test)]
+mod backup_id_tests {
+    //! Issue #94: a scheduled backup with checkpointing enabled is documented
+    //! as incremental, but the engine resumes from `{backup_id}/offsets.db`
+    //! and `{backup_id}/manifest.json`, so a backup ID that changes on every
+    //! run can never resume and every run is a full backup.
+    use super::*;
+    use crate::crd::KafkaBackup;
+    use chrono::TimeZone;
+    use serde_json::json;
+
+    fn make_backup(spec_overrides: serde_json::Value) -> KafkaBackup {
+        let mut spec = json!({
+            "kafkaCluster": {"bootstrapServers": ["localhost:9092"]},
+            "topics": ["t"],
+            "storage": {
+                "storageType": "pvc",
+                "pvc": {"claimName": "c"}
+            },
+        });
+        spec.as_object_mut()
+            .unwrap()
+            .extend(spec_overrides.as_object().unwrap().clone());
+        KafkaBackup::new("orders-hourly", serde_json::from_value(spec).unwrap())
+    }
+
+    fn first_run() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 11, 2, 4, 0, 0).unwrap()
+    }
+
+    fn second_run() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 11, 2, 5, 0, 0).unwrap()
+    }
+
+    /// The documented incremental configuration (`checkpoint.enabled: true`
+    /// with `stopAtCurrentOffsets: true` on a schedule) must address the same
+    /// backup set on every run, otherwise the saved checkpoint is never found.
+    #[test]
+    fn incremental_scheduled_backup_reuses_resource_name_as_backup_id() {
+        let backup = make_backup(json!({
+            "schedule": "0 0 * * * * *",
+            "stopAtCurrentOffsets": true,
+            "checkpoint": {"enabled": true, "intervalSecs": 15},
+        }));
+
+        assert!(is_incremental(&backup));
+        assert_eq!(backup_id_for(&backup, first_run()), "orders-hourly");
+        assert_eq!(backup_id_for(&backup, second_run()), "orders-hourly");
+    }
+
+    /// `checkpoint.enabled` defaults to true, so a bare `checkpoint: {}`
+    /// block is incremental as well.
+    #[test]
+    fn checkpoint_block_defaults_to_enabled_and_incremental() {
+        let backup = make_backup(json!({
+            "schedule": "0 0 * * * * *",
+            "checkpoint": {},
+        }));
+
+        assert!(is_incremental(&backup));
+        assert_eq!(backup_id_for(&backup, first_run()), "orders-hourly");
+    }
+
+    /// Without a checkpoint block every run is a standalone full backup and
+    /// keeps its own timestamped backup set (the documented "full scheduled
+    /// backup" mode, and the pre-fix behaviour).
+    #[test]
+    fn no_checkpoint_block_keeps_a_timestamped_backup_id_per_run() {
+        let backup = make_backup(json!({
+            "schedule": "0 0 * * * * *",
+            "stopAtCurrentOffsets": true,
+        }));
+
+        assert!(!is_incremental(&backup));
+        assert_eq!(
+            backup_id_for(&backup, first_run()),
+            "orders-hourly-20261102-040000"
+        );
+        assert_eq!(
+            backup_id_for(&backup, second_run()),
+            "orders-hourly-20261102-050000"
+        );
+    }
+
+    #[test]
+    fn checkpoint_disabled_keeps_a_timestamped_backup_id_per_run() {
+        let backup = make_backup(json!({
+            "schedule": "0 0 * * * * *",
+            "checkpoint": {"enabled": false},
+        }));
+
+        assert!(!is_incremental(&backup));
+        assert_eq!(
+            backup_id_for(&backup, first_run()),
+            "orders-hourly-20261102-040000"
+        );
+    }
+
+    /// A continuous backup is a single long-running engine; it tracks offsets
+    /// on its own and each (re)start is a new backup set, as before.
+    #[test]
+    fn continuous_backup_keeps_a_timestamped_backup_id_per_run() {
+        let backup = make_backup(json!({
+            "continuous": true,
+            "checkpoint": {"enabled": true},
+        }));
+
+        assert!(!is_incremental(&backup));
+        assert_eq!(
+            backup_id_for(&backup, first_run()),
+            "orders-hourly-20261102-040000"
+        );
+    }
+
+    /// The rule does not depend on a schedule: a one-shot backup with
+    /// checkpointing resumes its backup set if it is re-created (core's
+    /// "incremental one-shot" mode).
+    #[test]
+    fn one_shot_backup_with_checkpoint_is_incremental() {
+        let backup = make_backup(json!({
+            "checkpoint": {"enabled": true},
+        }));
+
+        assert!(is_incremental(&backup));
+        assert_eq!(backup_id_for(&backup, first_run()), "orders-hourly");
+    }
+
+    /// The generated suffix must stay in the exact form retention recognises
+    /// as operator-owned (`is_generated_backup_suffix`), or full-mode sets
+    /// would stop being pruned.
+    #[test]
+    fn timestamped_backup_id_is_recognised_by_retention() {
+        let backup = make_backup(json!({"schedule": "0 0 * * * * *"}));
+        let id = backup_id_for(&backup, first_run());
+        assert!(retention::is_owned_backup_id("orders-hourly", &id), "{id}");
+        assert!(retention::is_owned_backup_id(
+            "orders-hourly",
+            "orders-hourly"
+        ));
     }
 }

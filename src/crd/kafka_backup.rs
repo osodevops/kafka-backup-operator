@@ -535,7 +535,12 @@ fn default_gcs_service_account() -> String {
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CheckpointSpec {
-    /// Enable checkpointing
+    /// Enable checkpointing. A non-continuous backup with checkpointing
+    /// enabled writes every run into one backup set named after the resource
+    /// (`status.backupId` equals the resource name) and resumes from the
+    /// checkpoint the previous run stored, so scheduled runs are incremental.
+    /// Set to false (or omit the `checkpoint` block) for standalone full
+    /// backups, each in its own timestamped backup set.
     #[serde(default = "default_true")]
     pub enabled: bool,
 
@@ -767,7 +772,9 @@ pub struct KafkaBackupStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_checkpoint_time: Option<DateTime<Utc>>,
 
-    /// Whether the backup can be resumed
+    /// Whether runs of this backup resume one backup set (checkpointing
+    /// enabled on a non-continuous backup) rather than each writing a full
+    /// backup.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resumable: Option<bool>,
 
@@ -779,7 +786,8 @@ pub struct KafkaBackupStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub throughput_bytes_per_sec: Option<f64>,
 
-    /// Current backup ID
+    /// Backup set written by the last run: the resource name for incremental
+    /// backups, `{name}-{YYYYMMDD-HHMMSS}` for full backups.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backup_id: Option<String>,
 
