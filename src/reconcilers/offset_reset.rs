@@ -544,18 +544,36 @@ async fn load_offset_mapping(
         None => None,
     };
     let path = resolve_offset_mapping_path(mapping_ref, restore.as_ref())?;
-    let contents = tokio::fs::read_to_string(&path).await.map_err(|e| {
-        Error::storage(format!(
-            "Failed to read offset mapping at '{}': {}",
-            path, e
-        ))
-    })?;
-    let mapping = serde_json::from_str(&contents).map_err(Error::from)?;
+    let mapping = read_offset_mapping_file(&path).await?;
     let topics = restore
         .as_ref()
         .map(restore_topic_mapping)
         .unwrap_or_default();
     Ok((mapping, topics))
+}
+
+/// Read an offset mapping report written by a restore.
+///
+/// The report holds one entry per restored record, tens of millions for a large
+/// restore, so it is parsed straight from the file: reading it into a string
+/// first needs the whole file in memory on top of the parsed mapping
+/// (kafka-backup#244 is the same problem on the writing side). Reads both the
+/// compact reports of core 0.26.1+ and the pretty-printed ones of earlier
+/// releases. Errors keep their previous types: a missing or unreadable file is
+/// a storage error, invalid JSON a serialization error.
+async fn read_offset_mapping_file(path: &str) -> Result<OffsetMapping> {
+    let path = path.to_string();
+    tokio::task::spawn_blocking(move || -> Result<OffsetMapping> {
+        let file = std::fs::File::open(&path).map_err(|e| {
+            Error::storage(format!(
+                "Failed to read offset mapping at '{}': {}",
+                path, e
+            ))
+        })?;
+        Ok(serde_json::from_reader(std::io::BufReader::new(file))?)
+    })
+    .await
+    .map_err(|e| Error::storage(format!("Offset mapping reader task failed: {}", e)))?
 }
 
 /// Whether the KafkaRestore a from-mapping reset reads has produced its
@@ -1686,6 +1704,57 @@ mod issue224_tests {
         .into_iter()
         .map(|o| (o.partition, o.offset))
         .collect()
+    }
+
+    fn sample_mapping() -> OffsetMapping {
+        let mut mapping = OffsetMapping::new();
+        for i in 0..100 {
+            mapping.add_detailed("orders-r7", 0, 1_000 + i, i, 1_700_000_000_000 + i);
+        }
+        mapping
+    }
+
+    /// Core 0.26.1+ writes the report as compact JSON; earlier releases wrote
+    /// it pretty-printed, and those files may still be on a PVC.
+    #[tokio::test]
+    async fn offset_mapping_file_reads_compact_and_pretty_reports() {
+        let dir = tempfile::tempdir().unwrap();
+        let mapping = sample_mapping();
+        for (name, bytes) in [
+            ("compact.json", serde_json::to_vec(&mapping).unwrap()),
+            ("pretty.json", serde_json::to_vec_pretty(&mapping).unwrap()),
+        ] {
+            let path = dir.path().join(name);
+            std::fs::write(&path, bytes).unwrap();
+            let read = read_offset_mapping_file(path.to_str().unwrap())
+                .await
+                .unwrap();
+            assert_eq!(read.detailed_mapping_count(), 100, "{name}");
+            assert_eq!(
+                read.resolve_target_offset("orders-r7", 0, 1_042),
+                mapping.resolve_target_offset("orders-r7", 0, 1_042),
+                "{name}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn offset_mapping_file_errors_keep_their_types() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing.json");
+        let err = read_offset_mapping_file(missing.to_str().unwrap())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::Storage(_)), "{err:?}");
+        assert!(err.to_string().contains("missing.json"), "{err}");
+
+        let truncated = dir.path().join("truncated.json");
+        let full = serde_json::to_vec(&sample_mapping()).unwrap();
+        std::fs::write(&truncated, &full[..full.len() / 2]).unwrap();
+        let err = read_offset_mapping_file(truncated.to_str().unwrap())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::Serialization(_)), "{err:?}");
     }
 
     #[tokio::test]
