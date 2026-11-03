@@ -1,0 +1,44 @@
+---
+apiVersion: platform.confluent.io/v1beta1
+kind: KafkaTopic
+metadata:
+  name: orders
+  namespace: confluent
+spec:
+  replicas: 1
+  partitionCount: 1
+  kafkaClusterRef:
+    name: kafka
+---
+apiVersion: platform.confluent.io/v1beta1
+kind: KafkaTopic
+metadata:
+  name: metrics
+  namespace: confluent
+spec:
+  replicas: 1
+  partitionCount: 1
+  kafkaClusterRef:
+    name: kafka
+---
+apiVersion: platform.confluent.io/v1beta1
+kind: KafkaTopic
+metadata:
+  name: syslog-1
+  namespace: confluent
+spec:
+  replicas: 1
+  partitionCount: 1
+  kafkaClusterRef:
+    name: kafka
+---
+apiVersion: platform.confluent.io/v1beta1
+kind: KafkaTopic
+metadata:
+  name: syslog-2
+  namespace: confluent
+spec:
+  replicas: 1
+  partitionCount: 1
+  kafkaClusterRef:
+    name: kafka

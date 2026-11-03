@@ -107,6 +107,34 @@ async fn nothing_is_excluded_by_default() {
     assert!(core.source.unwrap().topics.exclude.is_empty());
 }
 
+/// Core checks literal include entries against the cluster before it applies
+/// the exclude list, so a literal that is also excluded would fail the run as
+/// "topic not found". The operator drops it from the include list; the glob
+/// entries and the exclude list itself are passed through unchanged.
+#[tokio::test]
+async fn excluded_literal_includes_are_kept_out_of_the_missing_topic_check() {
+    let core = core_backup(
+        &resolved_backup(json!({
+            "topics": ["orders", "ghost", "logs-*"],
+            "excludeTopics": ["ghost", "logs-*"],
+        }))
+        .await,
+    );
+    let selection = core.source.unwrap().topics;
+    assert_eq!(selection.include, vec!["orders", "logs-*"]);
+    assert_eq!(selection.exclude, vec!["ghost", "logs-*"]);
+}
+
+/// An empty include list means "everything" to core, so the adapter must
+/// never produce one even for a selection `validate` would have rejected.
+#[tokio::test]
+async fn effective_include_list_is_never_empty() {
+    let core = core_backup(
+        &resolved_backup(json!({"topics": ["orders"], "excludeTopics": ["orders"]})).await,
+    );
+    assert_eq!(core.source.unwrap().topics.include, vec!["orders"]);
+}
+
 #[tokio::test]
 async fn operator_backups_exclude_aborted_transactions_by_default() {
     let options = core_backup(&resolved_backup(json!({})).await)
