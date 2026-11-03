@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.6.1 - 2026-11-03
+
+Uses `kafka-backup-core` `v0.26.1`. CRD schemas are unchanged.
+
+### Fixed
+
+- Restores over TLS no longer hang on 60-second response timeouts. A request write could return with its last TLS records still buffered when the socket was momentarily full, so the broker waited for the rest of the request and the operator for the response; core now flushes every request ([kafka-backup#242](https://github.com/osodevops/kafka-backup/issues/242)). Reproduced in minikube against Redpanda over TLS: on 1.6.0 a `KafkaRestore` failed after 14 such timeouts without restoring a record; on 1.6.1 it completed in 16 s.
+- A `KafkaRestore` with offset recovery (`autoConsumerGroups` or `offsetReset.enabled`) no longer holds the whole offset mapping report in memory as text while writing it. The report has one entry per restored record, so a 60 M-record restore needed about 7 GB extra and was OOM-killed before consumer group offsets were applied ([kafka-backup#244](https://github.com/osodevops/kafka-backup/issues/244)). It is now streamed to disk as compact JSON and replaced atomically, so a failed write leaves no truncated report.
+- `KafkaOffsetReset` with `resetStrategy: from-mapping` parses the report straight from the file instead of reading it into a string first, which needed the file's size again in memory. It reads both the compact reports written from 1.6.1 and the pretty-printed ones of earlier releases.
+
 ## 1.6.0 - 2026-11-03
 
 Uses `kafka-backup-core` `v0.26.0`.
