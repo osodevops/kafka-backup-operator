@@ -116,6 +116,55 @@ fn backup_empty_topics_fails_validation() {
 }
 
 #[test]
+fn backup_blank_exclude_topic_fails_validation() {
+    for blank in ["", " ", "\t"] {
+        let mut spec = valid_backup_spec();
+        spec.topics = vec!["*".to_string()];
+        spec.exclude_topics = vec![blank.to_string()];
+
+        let result = backup::validate(&create_backup(spec));
+        let err = result.expect_err("blank excludeTopics entry must be rejected");
+        assert!(err.to_string().contains("excludeTopics"), "{err}");
+    }
+}
+
+#[test]
+fn backup_exclude_cancelling_every_topic_fails_validation() {
+    for (topics, exclude) in [
+        (vec!["*"], vec!["*"]),
+        (vec!["orders"], vec!["orders"]),
+        (vec!["orders", "orders-eu"], vec!["orders*"]),
+        (vec!["orders-*"], vec!["orders-*"]),
+    ] {
+        let mut spec = valid_backup_spec();
+        spec.topics = topics.iter().map(|s| s.to_string()).collect();
+        spec.exclude_topics = exclude.iter().map(|s| s.to_string()).collect();
+
+        let result = backup::validate(&create_backup(spec));
+        let err = result.expect_err("a selection that can never match must be rejected");
+        assert!(err.to_string().contains("excludeTopics"), "{err}");
+    }
+}
+
+#[test]
+fn backup_partial_or_unmatched_exclude_passes_validation() {
+    for (topics, exclude) in [
+        (vec!["*"], vec![]),
+        (vec!["*"], vec!["metrics", "syslog-*"]),
+        (vec!["orders", "events"], vec!["orders"]),
+        (vec!["orders-*"], vec!["orders-eu"]),
+        (vec!["orders"], vec!["no-such-topic"]),
+    ] {
+        let mut spec = valid_backup_spec();
+        spec.topics = topics.iter().map(|s| s.to_string()).collect();
+        spec.exclude_topics = exclude.iter().map(|s| s.to_string()).collect();
+
+        let result = backup::validate(&create_backup(spec));
+        assert!(result.is_ok(), "{topics:?} minus {exclude:?}: {result:?}");
+    }
+}
+
+#[test]
 fn backup_empty_bootstrap_servers_fails_validation() {
     let mut spec = valid_backup_spec();
     spec.kafka_cluster.bootstrap_servers = vec![];

@@ -11,6 +11,7 @@ pub mod leader;
 pub mod metrics;
 pub mod reconcilers;
 pub mod shutdown;
+pub mod topics;
 
 pub use error::{Error, Result};
 

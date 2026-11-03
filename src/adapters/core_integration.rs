@@ -38,7 +38,8 @@ pub fn to_core_backup_config(
 ) -> kafka_backup_core::Result<Config> {
     let mut kafka_config =
         to_core_kafka_config_with_tls(&resolved.kafka, &resolved.topics, tls_manager);
-    kafka_config.topics.exclude = resolved.exclude_topics.clone();
+    kafka_config.topics =
+        crate::topics::effective_selection(&resolved.topics, &resolved.exclude_topics);
     let storage_config = to_core_storage_config(&resolved.storage);
     let backup_options = to_core_backup_options(resolved);
 

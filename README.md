@@ -86,6 +86,17 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 
 ## Upgrade Notes
 
+### 1.5.0
+
+Uses `kafka-backup-core` `v0.25.2`. The `KafkaBackup` CRD schema changes: apply the updated CRDs before
+upgrading (`kubectl apply --server-side -f deploy/crds/all.yaml`; Helm does not upgrade CRDs).
+
+- `KafkaBackup.spec.excludeTopics` leaves topics out of a backup, by name or glob (`*`, `?`). A topic is
+  backed up when it matches an entry of `topics` and no entry of `excludeTopics`, so `topics: ["*"]` with
+  an exclude list backs up every topic created later unless it is excluded. Validation rejects a blank
+  entry and a list that cancels every entry of `topics`. A literal `topics` entry that is also excluded is
+  not checked against the cluster (it cannot fail the backup as "topic not found").
+
 ### 1.4.6
 
 - A `KafkaBackup` with `checkpoint.enabled: true` and `continuous: false` now writes every run into
@@ -208,6 +219,7 @@ spec:
     - orders
     - inventory
     - events
+  excludeTopics: []            # names or globs to leave out; `topics: ["*"]` + excludeTopics is the deny-list form
   storage:
     storageType: azure
     azure:

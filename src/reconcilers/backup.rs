@@ -59,6 +59,7 @@ pub fn validate(backup: &KafkaBackup) -> Result<()> {
     if backup.spec.topics.is_empty() {
         return Err(Error::validation("At least one topic must be specified"));
     }
+    crate::topics::validate_exclude_topics(&backup.spec.topics, &backup.spec.exclude_topics)?;
 
     // Validate kafka cluster
     if backup.spec.kafka_cluster.bootstrap_servers.is_empty() {
