@@ -1,10 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.5.0 - 2026-11-03
 
 ### Added
 
-- `KafkaBackup.spec.excludeTopics` leaves topics out of a backup, by name or glob. With `topics: ["*"]` every topic created later is backed up unless it is excluded.
+- `KafkaBackup.spec.excludeTopics` leaves topics out of a backup, by name or glob (`*`, `?`). With `topics: ["*"]` every topic created later is backed up unless it is excluded ([#95](https://github.com/osodevops/kafka-backup-operator/issues/95)). The CRD schema changes: apply the updated CRDs before upgrading (`kubectl apply --server-side -f deploy/crds/all.yaml`; Helm does not upgrade CRDs). On the old CRD the field is rejected by strict clients and silently dropped by lenient ones.
+- Validation rejects an `excludeTopics` list with a blank entry, or one that cancels every entry of `topics` (for example `topics: ["*"]` with `excludeTopics: ["*"]`): such a backup completed "successfully" having archived nothing.
+- A literal `topics` entry that `excludeTopics` also matches is left out of the selection handed to core. Before, a missing one failed the backup as "topic not found" (or was reported as missing under `onMissingTopic: warn`) although the exclusion asked for exactly that.
 
 ## 1.4.6 - 2026-11-03
 
