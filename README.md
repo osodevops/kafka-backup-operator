@@ -86,6 +86,17 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 
 ## Upgrade Notes
 
+### 1.4.6
+
+- A `KafkaBackup` with `checkpoint.enabled: true` and `continuous: false` now writes every run into
+  one backup set named after the resource and resumes from the checkpoint the previous run stored, so
+  scheduled runs are incremental as documented. Before, each run used a new `{name}-{YYYYMMDD-HHMMSS}`
+  backup ID, never found the previous checkpoint, and backed up the whole topic again
+  ([#94](https://github.com/osodevops/kafka-backup-operator/issues/94)). `status.backupId` is the
+  resource name and `status.resumable` is `true` for such backups. Backup sets written by earlier
+  releases stay where they are and age out under `retention`. Backups without a `checkpoint` block
+  (or with `enabled: false`) and continuous backups keep a timestamped backup set per run.
+
 ### 1.4.2
 
 Uses `kafka-backup-core` `v0.23.3`. CRD schemas are unchanged.
@@ -213,7 +224,7 @@ spec:
   consumerGroupSnapshot: true
   onMissingTopic: fail         # default; `warn` skips topics absent from the cluster and backs up the rest
   checkpoint:
-    enabled: true
+    enabled: true              # each run resumes the "production-backup" set: incremental
     intervalSecs: 30           # manifest + offset database sync every 2 x intervalSecs
 ```
 
