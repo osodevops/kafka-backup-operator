@@ -86,16 +86,19 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 
 ## Upgrade Notes
 
-### Unreleased
+### 1.6.0
 
-Requires a `kafka-backup-core` release that includes
-[kafka-backup#241](https://github.com/osodevops/kafka-backup/pull/241).
+Uses `kafka-backup-core` `v0.26.0`. The CRD schemas change (new `kafkaCluster.connection.produceApiVersion`
+on every resource): apply the updated CRDs before upgrading (`kubectl apply --server-side -f deploy/crds/all.yaml`;
+Helm does not upgrade CRDs).
 
-- `kafkaCluster.connection.produceApiVersion` (3 to 8, unset: 8) sets the Produce API version the
+- `kafkaCluster.connection.produceApiVersion` (7 or 8, unset: 8) sets the Produce API version the
   operator sends. Only Produce requests follow it, so it matters for `KafkaRestore`; the other resources
   accept and ignore it. The client does not negotiate API versions yet, so set it for a target broker
-  whose maximum is lower: Redpanda accepts up to 7 and drops the connection on 8 (every topic of the
-  restore fails with `early eof`). Below 7 brokers reject zstd-compressed batches.
+  whose maximum is lower: Redpanda advertises Produce 0..7 and drops the connection on 8, so every topic
+  of the restore fails with `early eof` (the restore error now says so and names the setting). Versions
+  below 7 are rejected: every batch the client produces is zstd-compressed, which brokers accept from
+  Produce version 7.
 
 ### 1.5.0
 

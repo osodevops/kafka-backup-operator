@@ -344,6 +344,28 @@ mod produce_api_version_tests {
         assert_eq!(connection(serde_json::json!({})).produce_api_version, None);
     }
 
+    /// The CRD schema must reject at admission exactly what core rejects at
+    /// validation, so the range is read from core rather than duplicated.
+    #[test]
+    fn crd_schema_range_matches_core() {
+        use kube::CustomResourceExt;
+        let crd = serde_json::to_value(crate::crd::KafkaBackup::crd()).unwrap();
+        let field = &crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
+            ["properties"]["kafkaCluster"]["properties"]["connection"]["properties"]
+            ["produceApiVersion"];
+        let range = kafka_backup_core::config::PRODUCE_API_VERSIONS;
+        assert_eq!(
+            field["minimum"].as_f64(),
+            Some(*range.start() as f64),
+            "{field}"
+        );
+        assert_eq!(
+            field["maximum"].as_f64(),
+            Some(*range.end() as f64),
+            "{field}"
+        );
+    }
+
     #[test]
     fn spec_value_reaches_core_config() {
         let resolved = ResolvedKafkaConfig {
