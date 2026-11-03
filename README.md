@@ -86,6 +86,18 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 
 ## Upgrade Notes
 
+### 1.6.1
+
+Uses `kafka-backup-core` `v0.26.1`. CRD schemas are unchanged.
+
+- Restores over TLS no longer stall on 60-second response timeouts when the connection is momentarily
+  full ([kafka-backup#242](https://github.com/osodevops/kafka-backup/issues/242)).
+- The offset mapping report of a restore with offset recovery is streamed to disk as compact JSON and
+  replaced atomically instead of being built in memory, which OOM-killed large restores
+  ([kafka-backup#244](https://github.com/osodevops/kafka-backup/issues/244)). `KafkaOffsetReset`
+  `from-mapping` reads it without loading the whole file first, and still reads reports written by
+  earlier releases.
+
 ### 1.6.0
 
 Uses `kafka-backup-core` `v0.26.0`. The CRD schemas change (new `kafkaCluster.connection.produceApiVersion`
