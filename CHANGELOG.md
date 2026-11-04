@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.6.5 - 2026-11-04
+
+Uses `kafka-backup-core` `v0.26.1`. CRD schemas are unchanged.
+
+### Fixed
+
+- A run interrupted by an operator restart (OOMKilled, evicted, rolled) is now failed with condition reason `Interrupted` instead of staying `Running` for ever ([#98](https://github.com/osodevops/kafka-backup-operator/issues/98)). Runs execute inside the operator process, so after a restart nothing runs them, but a `KafkaRestore` kept `phase: Running` / "Restore in progress" while the controller requeued it every 5 seconds, and nothing retried it or reported a failure. Reproduced in minikube on 1.6.3: SIGKILL during a restore, then `Running` for as long as we watched; with 1.6.5 the restore is `Failed` / `Interrupted` within seconds of the restart, and the records restored before the interruption are kept.
+- The same applies to `KafkaBackup` without a schedule (one-shot or continuous), which was never looked at again once `Running`; `KafkaBackupValidation`, which was requeued every 30 seconds (a scheduled one now runs again at its next tick); `KafkaOffsetRollback`; and `KafkaOffsetReset`, which was failed only 30 minutes after it started. Scheduled backups already run again at their next tick.
+- The operator tells its own runs from interrupted ones by recording every run it starts (kind, uid, generation): reconciles of one object are serialised, so a `Running` status this process wrote is only the cache catching up with its final status. An interrupted run is not resumed: restores are not checkpointed, so a resumed restore would produce its records again, and an interruption caused by the run itself (an OOM kill) would turn into a crash loop. To run it again, change the spec.
+
 ## 1.6.4 - 2026-11-04
 
 Uses `kafka-backup-core` `v0.26.1`. CRD schemas are unchanged.
