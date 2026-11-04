@@ -561,7 +561,7 @@ async fn execute_backup_internal(
 
     // 2b. Create TLS file manager if TLS is configured
     let tls_manager = if let Some(tls) = &resolved_config.kafka.tls {
-        let tls_dir = default_tls_dir(&name);
+        let tls_dir = default_tls_dir("KafkaBackup", namespace, &name);
         Some(TlsFileManager::new(tls, &tls_dir)?)
     } else {
         None
