@@ -21,6 +21,7 @@ use crate::controllers::Context;
 use crate::crd::KafkaBackupValidation;
 use crate::error::{Error, Result};
 use crate::metrics;
+use crate::reconcilers::runs::{self, RunningState};
 use crate::reconcilers::validation as validation_reconciler;
 use crate::shutdown::Shutdown;
 
@@ -120,6 +121,27 @@ async fn apply(validation: Arc<KafkaBackupValidation>, ctx: Arc<Context>) -> Res
                         &namespace,
                     )
                     .await;
+                }
+                // Running, but not a run of this process: the process that
+                // ran it died (issue #98). Fail it; a scheduled validation
+                // then runs again at its next tick.
+                if phase == "Running"
+                    && runs::running_state("KafkaBackupValidation", &validation.metadata)
+                        == RunningState::Interrupted
+                {
+                    let api: Api<KafkaBackupValidation> =
+                        Api::namespaced(ctx.client.clone(), &namespace);
+                    runs::mark_interrupted(
+                        &api,
+                        &name,
+                        "validation",
+                        validation.metadata.generation,
+                    )
+                    .await?;
+                    return Ok(validation_reconciler::requeue_until_next_run(
+                        &validation,
+                        chrono::Utc::now(),
+                    ));
                 }
             }
 

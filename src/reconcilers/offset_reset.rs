@@ -31,8 +31,9 @@ use crate::adapters::{
 use crate::crd::{KafkaOffsetReset, KafkaRestore, OffsetMappingRef, OffsetResetStrategy};
 use crate::error::{Error, Result};
 use crate::metrics;
+use crate::reconcilers::runs::{self, RunningState};
 
-const STALE_RUNNING_AFTER_SECS: i64 = 30 * 60;
+const KIND: &str = "KafkaOffsetReset";
 
 /// Validate the KafkaOffsetReset spec
 pub fn validate(reset: &KafkaOffsetReset) -> Result<()> {
@@ -105,23 +106,18 @@ pub async fn monitor_progress(
 ) -> Result<Action> {
     let name = reset.name_any();
 
-    match running_monitor_decision(reset, Utc::now()) {
-        RunningMonitorDecision::Requeue {
-            after,
-            elapsed_secs,
-        } => {
-            info!(
-                name = %name,
-                elapsed_secs,
-                "Offset reset still running"
-            );
-            Ok(Action::requeue(after))
+    // A Running reset this process did not start was interrupted (issue
+    // #98). This replaces a 30-minute staleness guess, which left an
+    // interrupted reset Running for up to half an hour and could fail a long
+    // reset this process was still running.
+    match runs::running_state(KIND, &reset.metadata) {
+        RunningState::Owned => {
+            info!(name = %name, "Offset reset still running");
+            Ok(Action::requeue(Duration::from_secs(10)))
         }
-        RunningMonitorDecision::MarkFailed => {
-            let message = "Offset reset was left Running without an active tracked operation";
-            warn!(name = %name, "{}", message);
-            update_status_failed(reset, client, namespace, message).await?;
-
+        RunningState::Interrupted => {
+            let api: Api<KafkaOffsetReset> = Api::namespaced(client.clone(), namespace);
+            runs::mark_interrupted(&api, &name, "offset reset", reset.metadata.generation).await?;
             Ok(Action::await_change())
         }
     }
@@ -177,6 +173,7 @@ pub async fn execute(reset: &KafkaOffsetReset, client: &Client, namespace: &str)
     }
 
     // Update status to Running
+    runs::record_start(KIND, &reset.metadata);
     let running_status = json!({
         "status": {
             "phase": "Running",
@@ -1180,29 +1177,6 @@ fn offsets_already_at_target(
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RunningMonitorDecision {
-    Requeue { after: Duration, elapsed_secs: i64 },
-    MarkFailed,
-}
-
-fn running_monitor_decision(
-    reset: &KafkaOffsetReset,
-    now: chrono::DateTime<Utc>,
-) -> RunningMonitorDecision {
-    if let Some(start_time) = reset.status.as_ref().and_then(|status| status.start_time) {
-        let elapsed_secs = now.signed_duration_since(start_time).num_seconds();
-        if elapsed_secs < STALE_RUNNING_AFTER_SECS {
-            return RunningMonitorDecision::Requeue {
-                after: Duration::from_secs(10),
-                elapsed_secs,
-            };
-        }
-    }
-
-    RunningMonitorDecision::MarkFailed
-}
-
 /// Update status to Failed
 pub async fn update_status_failed(
     reset: &KafkaOffsetReset,
@@ -1241,39 +1215,6 @@ pub async fn update_status_failed(
 #[cfg(test)]
 mod issue49_tests {
     use super::*;
-    use crate::crd::{KafkaClusterSpec, KafkaOffsetResetSpec, KafkaOffsetResetStatus};
-
-    fn reset_with_start_time(start_time: Option<chrono::DateTime<Utc>>) -> KafkaOffsetReset {
-        let mut reset = KafkaOffsetReset::new(
-            "issue49",
-            KafkaOffsetResetSpec {
-                kafka_cluster: KafkaClusterSpec {
-                    bootstrap_servers: vec!["localhost:9092".to_string()],
-                    security_protocol: "PLAINTEXT".to_string(),
-                    tls_secret: None,
-                    ca_secret: None,
-                    sasl_secret: None,
-                    connection: None,
-                },
-                consumer_groups: vec!["test.consumergroup.v1".to_string()],
-                reset_strategy: OffsetResetStrategy::FromMapping,
-                reset_timestamp: None,
-                reset_offset: None,
-                topics: vec![],
-                parallelism: 50,
-                dry_run: false,
-                continue_on_error: false,
-                offset_mapping_ref: None,
-                snapshot_before_reset: false,
-            },
-        );
-        reset.status = Some(KafkaOffsetResetStatus {
-            phase: Some("Running".to_string()),
-            start_time,
-            ..Default::default()
-        });
-        reset
-    }
 
     /// Fails any partition offset lookup.
     struct NoLeaders;
@@ -1612,30 +1553,6 @@ mod issue49_tests {
         }];
 
         assert!(offsets_already_at_target(&current, &target));
-    }
-
-    #[test]
-    fn running_monitor_requeues_fresh_running_status() {
-        let now = Utc::now();
-        let reset = reset_with_start_time(Some(now - chrono::Duration::seconds(5)));
-
-        assert_eq!(
-            running_monitor_decision(&reset, now),
-            RunningMonitorDecision::Requeue {
-                after: Duration::from_secs(10),
-                elapsed_secs: 5
-            }
-        );
-    }
-
-    #[test]
-    fn running_monitor_marks_missing_start_time_failed() {
-        let reset = reset_with_start_time(None);
-
-        assert_eq!(
-            running_monitor_decision(&reset, Utc::now()),
-            RunningMonitorDecision::MarkFailed
-        );
     }
 }
 

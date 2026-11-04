@@ -31,6 +31,9 @@ use crate::crd::KafkaBackup;
 use crate::error::{Error, Result};
 use crate::metrics;
 use crate::reconcilers::retention::{self, RetentionReport};
+use crate::reconcilers::runs::{self, RunningState};
+
+const KIND: &str = "KafkaBackup";
 
 /// Process-local guard recording the most recent wall-clock time at which
 /// this operator fired a scheduled backup for each `{namespace}/{name}`.
@@ -217,13 +220,17 @@ pub async fn check_schedule(
 ) -> Result<Action> {
     let name = backup.name_any();
 
-    // If no schedule, this is a one-shot backup - check if already completed
+    // No schedule: a one-shot (or continuous) backup runs once per generation.
     let Some(schedule_str) = &backup.spec.schedule else {
-        if !should_execute_one_shot_backup(backup) {
-            return Ok(Action::await_change());
-        }
-        // One-shot backup that hasn't run - execute now
-        return execute_backup(backup, client, namespace).await;
+        return match one_shot_backup_decision(backup) {
+            OneShotBackup::Run => execute_backup(backup, client, namespace).await,
+            OneShotBackup::Interrupted => {
+                let api: Api<KafkaBackup> = Api::namespaced(client.clone(), namespace);
+                runs::mark_interrupted(&api, &name, "backup", backup.metadata.generation).await?;
+                Ok(Action::await_change())
+            }
+            OneShotBackup::Wait => Ok(Action::await_change()),
+        };
     };
 
     // Parse schedule
@@ -281,14 +288,31 @@ pub async fn check_schedule(
     Ok(Action::requeue(requeue_duration))
 }
 
-fn should_execute_one_shot_backup(backup: &KafkaBackup) -> bool {
-    !matches!(
-        backup
-            .status
-            .as_ref()
-            .and_then(|status| status.phase.as_deref()),
-        Some("Running" | "Completed" | "Failed")
-    )
+/// What to do with a backup that has no schedule (one-shot or continuous).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OneShotBackup {
+    /// Not run yet for this generation.
+    Run,
+    /// `Running`, but no run of this process: the process that ran it died
+    /// (issue #98). Reported as failed, not resumed.
+    Interrupted,
+    /// Done, or still running in (or just finished by) this process.
+    Wait,
+}
+
+pub fn one_shot_backup_decision(backup: &KafkaBackup) -> OneShotBackup {
+    match backup
+        .status
+        .as_ref()
+        .and_then(|status| status.phase.as_deref())
+    {
+        Some("Completed" | "Failed") => OneShotBackup::Wait,
+        Some("Running") => match runs::running_state(KIND, &backup.metadata) {
+            RunningState::Owned => OneShotBackup::Wait,
+            RunningState::Interrupted => OneShotBackup::Interrupted,
+        },
+        _ => OneShotBackup::Run,
+    }
 }
 
 /// Determine if a scheduled backup tick is due.
@@ -361,6 +385,7 @@ async fn execute_backup(backup: &KafkaBackup, client: &Client, namespace: &str) 
     let api: Api<KafkaBackup> = Api::namespaced(client.clone(), namespace);
 
     info!(name = %name, "Starting backup execution");
+    runs::record_start(KIND, &backup.metadata);
 
     // Tentative anchor: write `lastScheduleTime` BEFORE the engine runs so the
     // reflector cache always has something to scheduler-anchor against on the
@@ -935,8 +960,9 @@ mod should_run_backup_tests {
             };
             let backup = make_backup(at(9, 0, 0), Some(status));
 
-            assert!(
-                !should_execute_one_shot_backup(&backup),
+            assert_ne!(
+                one_shot_backup_decision(&backup),
+                OneShotBackup::Run,
                 "one-shot backup in phase {phase} must not re-execute"
             );
         }
@@ -945,14 +971,20 @@ mod should_run_backup_tests {
     #[test]
     fn one_shot_without_terminal_or_running_phase_executes() {
         let backup_without_status = make_backup(at(9, 0, 0), None);
-        assert!(should_execute_one_shot_backup(&backup_without_status));
+        assert_eq!(
+            one_shot_backup_decision(&backup_without_status),
+            OneShotBackup::Run
+        );
 
         let pending_status = KafkaBackupStatus {
             phase: Some("Pending".into()),
             ..Default::default()
         };
         let pending_backup = make_backup(at(9, 0, 0), Some(pending_status));
-        assert!(should_execute_one_shot_backup(&pending_backup));
+        assert_eq!(
+            one_shot_backup_decision(&pending_backup),
+            OneShotBackup::Run
+        );
     }
 }
 
