@@ -10,7 +10,7 @@ use futures::future::join5;
 use kube::Client;
 use tokio::sync::watch;
 use tokio::task::JoinError;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use kafka_backup_operator::leader::{
@@ -37,6 +37,13 @@ async fn main() -> anyhow::Result<()> {
     info!("Starting OSO Kafka Backup Operator");
 
     kafka_backup_operator::install_crypto_provider();
+
+    // No run is in progress yet: TLS files under the root were left by a
+    // process that was killed mid-run (issue #99).
+    let tls_root = std::path::Path::new(kafka_backup_operator::adapters::TLS_ROOT);
+    if let Err(e) = kafka_backup_operator::adapters::clear_tls_root(tls_root) {
+        warn!(error = %e, "Failed to clear TLS files left by an earlier run");
+    }
 
     // Create Kubernetes client
     let client = Client::try_default().await?;

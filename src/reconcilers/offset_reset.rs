@@ -377,7 +377,7 @@ async fn execute_reset_internal(
 
     // Create TLS file manager if TLS is configured
     let _tls_manager = if let Some(tls) = &resolved_kafka.tls {
-        let tls_dir = default_tls_dir(&name);
+        let tls_dir = default_tls_dir("KafkaOffsetReset", namespace, &name);
         Some(TlsFileManager::new(tls, &tls_dir)?)
     } else {
         None

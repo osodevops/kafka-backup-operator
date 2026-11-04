@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.6.4 - 2026-11-04
+
+Uses `kafka-backup-core` `v0.26.1`. CRD schemas are unchanged.
+
+### Fixed
+
+- A run killed mid-way (OOMKilled, SIGKILL) no longer breaks every later run of a resource with TLS client credentials ([#99](https://github.com/osodevops/kafka-backup-operator/issues/99)). The TLS files are removed when a run ends, but a killed process never gets there, and `/tmp` is an emptyDir that survives the container restart: the next run could not overwrite the leftover read-only `client.key` and failed with `Failed to create file ".../client.key": Permission denied` until the resource was renamed. Each file is now removed before it is written, and the operator clears `/tmp/kafka-backup-tls` when it starts, since no run is in progress then. Reproduced in minikube: SIGKILL during an mTLS backup (exit 137), then every new run with the same name failed on 1.6.3.
+- Resources no longer share TLS files. The directory was named after the resource only, so a `KafkaBackup` and a `KafkaRestore` (or `KafkaOffsetReset`/`KafkaOffsetRollback`), or two namespaces, with the same name wrote and deleted each other's client key. It is now `/tmp/kafka-backup-tls/<kind>/<namespace>/<name>`.
+- The client key is created owner read-only (0400) instead of being written world-readable and restricted afterwards, and the TLS directory is 0700.
+
 ## 1.6.3 - 2026-11-04
 
 Uses `kafka-backup-core` `v0.26.1`. CRD schemas are unchanged.

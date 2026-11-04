@@ -2,8 +2,14 @@
 //!
 //! Handles writing TLS credentials to temporary files for use by kafka-backup-core.
 //! Files are automatically cleaned up when the TlsFileManager is dropped.
+//!
+//! A run killed mid-way (OOMKilled) never drops its manager, and /tmp is an
+//! emptyDir that survives a container restart, so a run must cope with files
+//! left by an earlier one (issue #99): every file is removed before it is
+//! written, each resource has its own directory, and the operator clears the
+//! TLS root when it starts.
 
-use std::fs::{self, File};
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -38,43 +44,26 @@ impl TlsFileManager {
     /// # Returns
     /// A TlsFileManager that manages the created files
     pub fn new(credentials: &TlsCredentials, base_dir: &Path) -> Result<Self> {
-        // Create the base directory if it doesn't exist
-        fs::create_dir_all(base_dir).map_err(|e| {
-            Error::Core(format!(
-                "Failed to create TLS directory {:?}: {}",
-                base_dir, e
-            ))
-        })?;
+        create_private_dir(base_dir)?;
 
         // Write CA certificate
         let ca_cert_path = base_dir.join("ca.crt");
-        write_file(&ca_cert_path, &credentials.ca_cert)?;
+        write_file(&ca_cert_path, &credentials.ca_cert, 0o644)?;
 
         // Write client certificate if present
         let client_cert_path = if let Some(cert) = &credentials.client_cert {
             let path = base_dir.join("client.crt");
-            write_file(&path, cert)?;
+            write_file(&path, cert, 0o644)?;
             Some(path)
         } else {
             None
         };
 
-        // Write client key if present
+        // Write client key if present: owner read-only from creation, so it
+        // is never readable by others, not even between write and chmod.
         let client_key_path = if let Some(key) = &credentials.client_key {
             let path = base_dir.join("client.key");
-            write_file(&path, key)?;
-            // Set restrictive permissions on key file (owner read only)
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let mut perms = fs::metadata(&path)
-                    .map_err(|e| Error::Core(format!("Failed to get key file metadata: {}", e)))?
-                    .permissions();
-                perms.set_mode(0o400);
-                fs::set_permissions(&path, perms).map_err(|e| {
-                    Error::Core(format!("Failed to set key file permissions: {}", e))
-                })?;
-            }
+            write_file(&path, key, 0o400)?;
             Some(path)
         } else {
             None
@@ -148,9 +137,50 @@ impl Drop for TlsFileManager {
     }
 }
 
-/// Write content to a file
-fn write_file(path: &Path, content: &str) -> Result<()> {
-    let mut file = File::create(path)
+/// Create `dir` (and its parents) and make it private to the operator.
+fn create_private_dir(dir: &Path) -> Result<()> {
+    fs::create_dir_all(dir)
+        .map_err(|e| Error::Core(format!("Failed to create TLS directory {:?}: {}", dir, e)))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(|e| {
+            Error::Core(format!(
+                "Failed to set TLS directory permissions {:?}: {}",
+                dir, e
+            ))
+        })?;
+    }
+    Ok(())
+}
+
+/// Write `content` to a new file at `path` created with `mode`.
+///
+/// An existing file is removed first: a run killed before its manager was
+/// dropped leaves its files behind, and a read-only (0400) client.key cannot
+/// be opened for writing again.
+fn write_file(path: &Path, content: &str, mode: u32) -> Result<()> {
+    match fs::remove_file(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(Error::Core(format!(
+                "Failed to remove stale file {:?}: {}",
+                path, e
+            )))
+        }
+    }
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(mode);
+    }
+    #[cfg(not(unix))]
+    let _ = mode;
+    let mut file = options
+        .open(path)
         .map_err(|e| Error::Core(format!("Failed to create file {:?}: {}", path, e)))?;
     file.write_all(content.as_bytes())
         .map_err(|e| Error::Core(format!("Failed to write file {:?}: {}", path, e)))?;
@@ -159,9 +189,41 @@ fn write_file(path: &Path, content: &str) -> Result<()> {
     Ok(())
 }
 
-/// Get the default TLS directory for an operation
-pub fn default_tls_dir(operation_id: &str) -> PathBuf {
-    PathBuf::from(format!("/tmp/kafka-backup-tls/{}", operation_id))
+/// Root under which every run writes its TLS files.
+pub const TLS_ROOT: &str = "/tmp/kafka-backup-tls";
+
+/// TLS directory of one resource: `/tmp/kafka-backup-tls/<kind>/<namespace>/<name>`.
+///
+/// Kind and namespace keep resources with the same name (a KafkaBackup and a
+/// KafkaRestore, or two namespaces) from sharing files. Runs of one resource
+/// are serialised by the controller, so they can share its directory.
+pub fn default_tls_dir(kind: &str, namespace: &str, name: &str) -> PathBuf {
+    tls_dir_in(Path::new(TLS_ROOT), kind, namespace, name)
+}
+
+/// [`default_tls_dir`] under another root.
+pub fn tls_dir_in(root: &Path, kind: &str, namespace: &str, name: &str) -> PathBuf {
+    root.join(kind).join(namespace).join(name)
+}
+
+/// Remove everything under `root`. Called when the operator starts: no run is
+/// in progress then, so anything there was left by a killed process, possibly
+/// for a resource that has since been deleted. A missing root is fine.
+pub fn clear_tls_root(root: &Path) -> std::io::Result<()> {
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    for entry in entries {
+        let path = entry?.path();
+        if path.is_dir() {
+            fs::remove_dir_all(&path)?;
+        } else {
+            fs::remove_file(&path)?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

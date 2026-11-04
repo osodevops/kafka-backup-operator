@@ -86,6 +86,14 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 
 ## Upgrade Notes
 
+### 1.6.4
+
+CRD schemas are unchanged.
+
+- A run killed mid-way no longer leaves a read-only TLS `client.key` that makes every later run fail with
+  "Permission denied" ([#99](https://github.com/osodevops/kafka-backup-operator/issues/99)). TLS files now live in
+  `/tmp/kafka-backup-tls/<kind>/<namespace>/<name>`, are replaced on every run, and are cleared when the operator starts.
+
 ### 1.6.3
 
 CRD schemas are unchanged.
