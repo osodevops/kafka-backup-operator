@@ -86,6 +86,14 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 
 ## Upgrade Notes
 
+### 1.7.0
+
+Uses `kafka-backup-core` `v0.27.0`. The CRD changes only in field descriptions.
+
+- `KafkaBackup.spec.rateLimiting.recordsPerSec` and `bytesPerSec` now throttle backups (they were ignored)
+  ([#81](https://github.com/osodevops/kafka-backup-operator/issues/81)). Each is the backup's total rate across all
+  partitions; `0` means unlimited. Backups that set them will run at that rate after the upgrade.
+
 ### 1.6.5
 
 CRD schemas are unchanged.
