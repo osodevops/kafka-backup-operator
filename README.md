@@ -86,6 +86,15 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 
 ## Upgrade Notes
 
+### 1.6.3
+
+CRD schemas are unchanged.
+
+- Scheduled `KafkaBackupValidation`s run on their schedule; earlier releases ran them once, at creation
+  or spec change, and never again. Each run writes its own evidence report, and
+  `status.nextScheduledValidation` shows the next run.
+- Setting `suspend: true` no longer triggers a final run.
+
 ### 1.6.2
 
 The `KafkaBackupValidation` CRD gains status fields; apply the updated CRDs before upgrading

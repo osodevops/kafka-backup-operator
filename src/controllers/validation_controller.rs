@@ -127,6 +127,13 @@ async fn apply(validation: Arc<KafkaBackupValidation>, ctx: Arc<Context>) -> Res
         }
     }
 
+    // A suspended validation records the new generation without running.
+    if !validation_reconciler::runs_on_spec_change(&validation) {
+        info!("Validation is suspended; not running the new generation");
+        validation_reconciler::record_suspended(&validation, &ctx.client, &namespace).await?;
+        return Ok(Action::requeue(Duration::from_secs(60)));
+    }
+
     // Validate the spec
     if let Err(e) = validation_reconciler::validate(&validation) {
         warn!(error = %e, "Validation spec check failed");

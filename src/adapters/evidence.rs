@@ -80,7 +80,7 @@ pub fn evidence_report_id(name: &str, uid: Option<&str>, now: DateTime<Utc>) -> 
 
 /// Credential-free description of a storage location for the report.
 ///
-/// The CLI records `format!("{:?}", storage_config)`, which embeds account
+/// The CLI before core 0.26.2 recorded `format!("{:?}", storage_config)`, which embedded account
 /// keys and secrets in the (signed) report. Only the location is recorded
 /// here.
 pub fn describe_storage(storage: &ResolvedStorage) -> String {

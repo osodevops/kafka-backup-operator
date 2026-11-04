@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.6.3 - 2026-11-04
+
+Uses `kafka-backup-core` `v0.26.1`. CRD schemas are unchanged.
+
+### Fixed
+
+- Scheduled `KafkaBackupValidation`s now run on their schedule. Once a validation had run for its current spec, the controller only requeued it until the next cron tick and never ran it again, so `schedule: "0 0 2 * * *"` ran once at creation and kept the same `lastValidationTime` from then on. A run is now due when a cron tick has passed since the last run started (`status.startTime`), after `Completed` and after `Failed` alike. A process-local guard stops a reconcile that reads a stale cache from running the same tick twice, as the `KafkaBackup` scheduler does. Reproduced in minikube with a 15-second schedule: on 1.6.2, 5 schedule wakeups and 1 run; on 1.6.3, one run per tick with its own evidence report and no duplicate runs.
+- `status.nextScheduledValidation` is set after each run of a scheduled validation (the field existed but was never written).
+- Setting `suspend: true` no longer runs the validation one last time. A spec change runs a validation at once, and suspending is a spec change; a suspended validation now records the new generation without running.
+
 ## 1.6.2 - 2026-11-04
 
 Uses `kafka-backup-core` `v0.26.1`. The `KafkaBackupValidation` CRD gains status fields: apply the updated CRDs before upgrading (`kubectl apply --server-side -f deploy/crds/all.yaml`; Helm does not upgrade CRDs). On the old CRD the API server prunes the new fields from status.
