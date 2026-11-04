@@ -291,7 +291,7 @@ spec:
                 properties:
                   bytesPerSec:
                     default: 0
-                    description: Maximum bytes per second (0 = unlimited)
+                    description: Maximum bytes per second (each record's encoded size) for the whole run, shared by all partitions (0 = unlimited). Applied to backups since 1.7.0
                     format: uint64
                     minimum: 0.0
                     type: integer
@@ -303,7 +303,7 @@ spec:
                     type: integer
                   recordsPerSec:
                     default: 0
-                    description: Maximum records per second (0 = unlimited)
+                    description: Maximum records per second for the whole run, shared by all partitions (0 = unlimited). Applied to backups since 1.7.0
                     format: uint64
                     minimum: 0.0
                     type: integer
@@ -1225,7 +1225,7 @@ spec:
                 properties:
                   bytesPerSec:
                     default: 0
-                    description: Maximum bytes per second (0 = unlimited)
+                    description: Maximum bytes per second (each record's encoded size) for the whole run, shared by all partitions (0 = unlimited). Applied to backups since 1.7.0
                     format: uint64
                     minimum: 0.0
                     type: integer
@@ -1237,7 +1237,7 @@ spec:
                     type: integer
                   recordsPerSec:
                     default: 0
-                    description: Maximum records per second (0 = unlimited)
+                    description: Maximum records per second for the whole run, shared by all partitions (0 = unlimited). Applied to backups since 1.7.0
                     format: uint64
                     minimum: 0.0
                     type: integer

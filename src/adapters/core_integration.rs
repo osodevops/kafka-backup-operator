@@ -342,6 +342,18 @@ fn to_core_backup_options(resolved: &ResolvedBackupConfig) -> BackupOptions {
         .map(|rl| rl.max_concurrent_partitions)
         .unwrap_or(8);
 
+    // 0 means unlimited in the CRD; core means unlimited by "unset" and
+    // rejects 0 (issue #81: before core 0.27 the backup engine had no limit).
+    let positive = |rate: u64| (rate > 0).then_some(rate);
+    let rate_limit_records_per_sec = resolved
+        .rate_limiting
+        .as_ref()
+        .and_then(|rl| positive(rl.records_per_sec));
+    let rate_limit_bytes_per_sec = resolved
+        .rate_limiting
+        .as_ref()
+        .and_then(|rl| positive(rl.bytes_per_sec));
+
     let on_missing_topic = match resolved.backup_options.on_missing_topic {
         OnMissingTopicPolicy::Fail => OnMissingTopic::Fail,
         OnMissingTopicPolicy::Warn => OnMissingTopic::Warn,
@@ -366,6 +378,8 @@ fn to_core_backup_options(resolved: &ResolvedBackupConfig) -> BackupOptions {
         source_cluster_id: resolved.backup_options.source_cluster_id.clone(),
         stop_at_current_offsets: resolved.backup_options.stop_at_current_offsets,
         max_concurrent_partitions,
+        rate_limit_records_per_sec,
+        rate_limit_bytes_per_sec,
         poll_interval_ms: resolved.backup_options.poll_interval_ms,
         consumer_group_snapshot: resolved.backup_options.consumer_group_snapshot,
         fetch_max_bytes: None,

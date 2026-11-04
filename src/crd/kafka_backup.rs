@@ -596,11 +596,14 @@ pub struct CheckpointStorageSpec {
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RateLimitingSpec {
-    /// Maximum records per second (0 = unlimited)
+    /// Maximum records per second for the whole run, shared by all
+    /// partitions (0 = unlimited). Applied to backups since 1.7.0
     #[serde(default)]
     pub records_per_sec: u64,
 
-    /// Maximum bytes per second (0 = unlimited)
+    /// Maximum bytes per second (each record's encoded size) for the whole
+    /// run, shared by all partitions (0 = unlimited). Applied to backups
+    /// since 1.7.0
     #[serde(default)]
     pub bytes_per_sec: u64,
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.7.0 - 2026-11-04
+
+Uses `kafka-backup-core` `v0.27.0` (from `v0.26.1`: 0.26.2 keeps storage credentials out of `Debug` output and validation reports; 0.27.0 adds backup rate limits). The CRD changes only in field descriptions.
+
+### Fixed
+
+- `KafkaBackup.spec.rateLimiting.recordsPerSec` and `bytesPerSec` now limit backups ([#81](https://github.com/osodevops/kafka-backup-operator/issues/81)). They had no effect: core's backup engine had no rate limit, so only `maxConcurrentPartitions` reached it. Core 0.27.0 adds one token bucket per backup, shared by every partition, so each limit is the backup's total rate (bytes are counted as each record's encoded size, as for restores). It is an average: a fetch waits until the previous one fits the rate. `0` still means unlimited. Reproduced in minikube: 50 000 records with `recordsPerSec: 500` took about 3 s on 1.6.5 and about 100 s on 1.7.0.
+
+### Upgrade note
+
+- Backups that set `rateLimiting.recordsPerSec` or `bytesPerSec` were never throttled and now are. Check that the values you set are the ones you want before upgrading; set them to `0` (or remove them) for unlimited.
+
 ## 1.6.5 - 2026-11-04
 
 Uses `kafka-backup-core` `v0.26.1`. CRD schemas are unchanged.
