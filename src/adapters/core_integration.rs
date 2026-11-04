@@ -593,8 +593,10 @@ pub fn to_core_validation_config(
 
     let checks = to_core_checks_config(&resolved.checks);
 
+    // Evidence is emitted by the reconciler (adapters::emit_validation_evidence),
+    // which supplies the signing key file; this config only carries the checks.
     let evidence = match &resolved.evidence {
-        Some(ev) => to_core_evidence_config(ev, storage),
+        Some(ev) => to_core_evidence_config(ev, None),
         None => CoreEvidenceConfig::default(),
     };
 
@@ -675,10 +677,14 @@ fn to_core_checks_config(checks: &crate::crd::ValidationChecksSpec) -> CoreCheck
     }
 }
 
-/// Convert resolved evidence config to core EvidenceConfig
-fn to_core_evidence_config(
+/// Convert resolved evidence config to core EvidenceConfig.
+///
+/// Core reads the signing key from a file: `signing_key_path` is the path of
+/// the PEM written from the signing Secret. Signing is enabled only when a
+/// path is given.
+pub fn to_core_evidence_config(
     resolved: &ResolvedEvidenceConfig,
-    _backup_storage: &ResolvedStorage,
+    signing_key_path: Option<String>,
 ) -> CoreEvidenceConfig {
     let formats = resolved
         .formats
@@ -691,9 +697,10 @@ fn to_core_evidence_config(
         .collect();
 
     let signing = CoreSigningConfig {
-        enabled: resolved.signing_private_key_pem.is_some(),
-        private_key_path: resolved.signing_private_key_pem.clone(),
-        public_key_path: resolved.signing_public_key_pem.clone(),
+        enabled: signing_key_path.is_some(),
+        private_key_path: signing_key_path,
+        // Only verification reads the public key, and it takes a path too.
+        public_key_path: None,
     };
 
     CoreEvidenceConfig {

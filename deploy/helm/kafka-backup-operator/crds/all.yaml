@@ -2414,7 +2414,7 @@ spec:
                   formats:
                     default:
                     - json
-                    description: Output formats (json, pdf)
+                    description: 'Output formats: json, pdf (case-insensitive). Signing always stores the JSON report, since the signature covers its bytes'
                     items:
                       type: string
                     type: array
@@ -2433,7 +2433,7 @@ spec:
                         description: Enable ECDSA-P256-SHA256 signing
                         type: boolean
                       keySecret:
-                        description: Secret containing the ECDSA private key (PEM-encoded)
+                        description: Secret containing the ECDSA P-256 private key (PEM-encoded PKCS#8, `-----BEGIN PRIVATE KEY-----`)
                         properties:
                           name:
                             description: Secret name
@@ -2453,7 +2453,7 @@ spec:
                     - keySecret
                     type: object
                   storage:
-                    description: Storage location for evidence reports
+                    description: Storage location for evidence reports (defaults to the backup's storage). Reports are written under `evidence-reports/` within it
                     nullable: true
                     properties:
                       azure:
@@ -2919,14 +2919,30 @@ spec:
                   - type
                   type: object
                 type: array
+              evidencePdfPath:
+                description: Key of the PDF evidence report of the last completed validation
+                nullable: true
+                type: string
+              evidenceReportId:
+                description: ID of the evidence report of the last completed validation; the directory and file stem of its artifacts in evidence storage
+                nullable: true
+                type: string
               evidenceReportPath:
-                description: Path to evidence report in storage
+                description: Key of the JSON evidence report of the last completed validation. Evidence keys are relative to the evidence storage (`spec.evidence.storage`, or the backup's storage when unset) and its prefix, e.g. `evidence-reports/<id>/<yyyy>/<mm>/<id>.json`
+                nullable: true
+                type: string
+              evidenceReportSha256:
+                description: Lowercase hex SHA-256 of the exact stored JSON evidence report bytes
                 nullable: true
                 type: string
               evidenceReportSigned:
                 description: Whether the evidence report is cryptographically signed
                 nullable: true
                 type: boolean
+              evidenceSignaturePath:
+                description: Key of the detached signature envelope of the last completed validation (when signing is enabled)
+                nullable: true
+                type: string
               lastValidationTime:
                 description: Last successful validation time
                 format: date-time

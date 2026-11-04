@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.6.2 - 2026-11-04
+
+Uses `kafka-backup-core` `v0.26.1`. The `KafkaBackupValidation` CRD gains status fields: apply the updated CRDs before upgrading (`kubectl apply --server-side -f deploy/crds/all.yaml`; Helm does not upgrade CRDs). On the old CRD the API server prunes the new fields from status.
+
+### Fixed
+
+- `KafkaBackupValidation` now writes the evidence reports `spec.evidence` asks for ([#93](https://github.com/osodevops/kafka-backup-operator/issues/93)). The evidence step was a placeholder: a run reported `Completed` with no report in storage and no path in status, whatever `formats`, `signing` and `storage` said. Reports are built and stored through kafka-backup-core's evidence pipeline, the one the CLI uses, so the JSON, its SHA-256, the signature envelope and the PDF follow the same contract. They go to `spec.evidence.storage` (or the backup's storage when unset) under `evidence-reports/<reportId>/<yyyy>/<mm>/`, and the run fails with reason `EvidenceEmissionFailed` when they cannot be stored.
+- Evidence signing passed the key's PEM content to core where core expects a file path, so signing could never have worked. The key from the Secret is now written to a private temporary file for the duration of signing. Core parses PKCS#8 keys only (`-----BEGIN PRIVATE KEY-----`); a SEC1 key (`-----BEGIN EC PRIVATE KEY-----`, as `openssl ecparam -genkey` writes) is rejected with the command that converts it.
+- `spec.notifications` (Slack, PagerDuty) were resolved and never sent. They now receive each run's result and evidence location; a delivery failure is reported in the status message without failing the run.
+- Validation rejects an empty `evidence.formats` and formats other than `json` and `pdf`, which were dropped silently.
+
+### Added
+
+- Status fields `evidenceReportId`, `evidencePdfPath`, `evidenceSignaturePath` and `evidenceReportSha256` (lowercase hex SHA-256 of the stored JSON bytes), next to `evidenceReportPath` (the JSON report) and `evidenceReportSigned`. Paths are keys relative to the evidence storage and its prefix.
+- The report records the storage location without credentials (for example `azure://account/container/prefix`), names `kafka-backup-operator` and its version as the tool, and records `kafka-backup-operator:<namespace>/<name>` as the trigger.
+
 ## 1.6.1 - 2026-11-03
 
 Uses `kafka-backup-core` `v0.26.1`. CRD schemas are unchanged.

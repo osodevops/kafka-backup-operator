@@ -8,6 +8,7 @@ use crate::crd::{BackupValidationRef, KafkaBackupValidation, NotificationsSpec, 
 use crate::error::Result;
 
 use super::backup_config::{build_kafka_config, ResolvedKafkaConfig};
+use super::evidence::check_signing_key_pem;
 use super::restore_config::ResolvedBackupSource;
 use super::secrets::{get_secret, get_secret_string};
 use super::storage_config::{build_storage_config, ResolvedStorage};
@@ -147,6 +148,7 @@ async fn resolve_signing_keys(
 ) -> Result<(Option<String>, Option<String>)> {
     let secret = get_secret(client, &signing.key_secret.name, namespace).await?;
     let private_key = get_secret_string(&secret, &signing.key_secret.private_key_key)?;
+    check_signing_key_pem(&private_key)?;
     let public_key = get_secret_string(&secret, &signing.key_secret.public_key_key).ok();
     Ok((Some(private_key), public_key))
 }

@@ -86,6 +86,22 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 
 ## Upgrade Notes
 
+### 1.6.2
+
+The `KafkaBackupValidation` CRD gains status fields; apply the updated CRDs before upgrading
+(`kubectl apply --server-side -f deploy/crds/all.yaml`).
+
+- `KafkaBackupValidation` writes the evidence reports `spec.evidence` asks for (JSON, PDF, signature
+  envelope) to `spec.evidence.storage`, or to the backup's storage when unset, under
+  `evidence-reports/<reportId>/<yyyy>/<mm>/` ([#93](https://github.com/osodevops/kafka-backup-operator/issues/93)).
+  Earlier releases accepted the configuration and wrote nothing. Status reports `evidenceReportId`,
+  `evidenceReportPath` (JSON), `evidencePdfPath`, `evidenceSignaturePath`, `evidenceReportSha256` and
+  `evidenceReportSigned`; a run whose evidence cannot be stored fails with reason `EvidenceEmissionFailed`.
+- Signing keys must be PKCS#8 (`-----BEGIN PRIVATE KEY-----`). Convert a SEC1 key
+  (`-----BEGIN EC PRIVATE KEY-----`) with `openssl pkcs8 -topk8 -nocrypt -in key.pem -out key.p8.pem`.
+- `spec.notifications` (Slack, PagerDuty) are now sent.
+- `evidence.formats` accepts `json` and `pdf` only; anything else fails validation.
+
 ### 1.6.1
 
 Uses `kafka-backup-core` `v0.26.1`. CRD schemas are unchanged.
