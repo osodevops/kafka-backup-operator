@@ -27,6 +27,9 @@ use crate::adapters::{
 use crate::crd::{KafkaBackup, KafkaRestore};
 use crate::error::{Error, Result};
 use crate::metrics;
+use crate::reconcilers::runs::{self, RunningState};
+
+const KIND: &str = "KafkaRestore";
 
 /// Validate the KafkaRestore spec
 pub fn validate(restore: &KafkaRestore) -> Result<()> {
@@ -165,16 +168,24 @@ fn validate_restore_target_safety(restore: &KafkaRestore) -> Result<()> {
 /// Monitor restore progress
 pub async fn monitor_progress(
     restore: &KafkaRestore,
-    _client: &Client,
-    _namespace: &str,
+    client: &Client,
+    namespace: &str,
 ) -> Result<Action> {
     let name = restore.name_any();
 
-    // TODO: Check actual restore progress from the running operation
-    // For now, just requeue to check again
-    info!(name = %name, "Monitoring restore progress");
-
-    Ok(Action::requeue(Duration::from_secs(5)))
+    // A restore runs inside the reconcile that started it, so a Running
+    // restore this process did not start was interrupted (issue #98).
+    match runs::running_state(KIND, &restore.metadata) {
+        RunningState::Owned => {
+            info!(name = %name, "Monitoring restore progress");
+            Ok(Action::requeue(Duration::from_secs(5)))
+        }
+        RunningState::Interrupted => {
+            let api: Api<KafkaRestore> = Api::namespaced(client.clone(), namespace);
+            runs::mark_interrupted(&api, &name, "restore", restore.metadata.generation).await?;
+            Ok(Action::await_change())
+        }
+    }
 }
 
 /// Execute a restore operation
@@ -183,6 +194,7 @@ pub async fn execute(restore: &KafkaRestore, client: &Client, namespace: &str) -
     let api: Api<KafkaRestore> = Api::namespaced(client.clone(), namespace);
 
     info!(name = %name, "Starting restore execution");
+    runs::record_start(KIND, &restore.metadata);
 
     // Check if this is a dry run
     if restore.spec.dry_run {

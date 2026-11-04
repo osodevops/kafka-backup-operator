@@ -31,6 +31,9 @@ use crate::adapters::{
 use crate::crd::{KafkaBackup, KafkaBackupValidation};
 use crate::error::{Error, Result};
 use crate::metrics;
+use crate::reconcilers::runs;
+
+const KIND: &str = "KafkaBackupValidation";
 
 /// Validate the KafkaBackupValidation spec
 pub fn validate(validation: &KafkaBackupValidation) -> Result<()> {
@@ -321,6 +324,8 @@ pub async fn execute(
     let api: Api<KafkaBackupValidation> = Api::namespaced(client.clone(), namespace);
 
     info!(name = %name, "Starting validation execution");
+
+    runs::record_start(KIND, &validation.metadata);
 
     // Update status to Running
     let running_status = json!({

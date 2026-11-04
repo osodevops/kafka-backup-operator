@@ -11,4 +11,5 @@ pub mod offset_reset;
 pub mod offset_rollback;
 pub mod restore;
 pub mod retention;
+pub mod runs;
 pub mod validation;

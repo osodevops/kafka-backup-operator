@@ -86,6 +86,15 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 
 ## Upgrade Notes
 
+### 1.6.5
+
+CRD schemas are unchanged.
+
+- A backup, restore, validation, offset reset or rollback that was running when the operator restarted is now
+  `Failed` with reason `Interrupted` instead of `Running` for ever
+  ([#98](https://github.com/osodevops/kafka-backup-operator/issues/98)). It is not resumed; change the spec to run
+  it again. Scheduled backups and validations run again at their next tick.
+
 ### 1.6.4
 
 CRD schemas are unchanged.

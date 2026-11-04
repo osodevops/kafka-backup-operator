@@ -23,6 +23,9 @@ use crate::adapters::{
 };
 use crate::crd::{KafkaOffsetRollback, VerificationResult};
 use crate::error::{Error, Result};
+use crate::reconcilers::runs::{self, RunningState};
+
+const KIND: &str = "KafkaOffsetRollback";
 
 /// Validate the KafkaOffsetRollback spec
 pub fn validate(rollback: &KafkaOffsetRollback) -> Result<()> {
@@ -65,14 +68,24 @@ pub fn validate(rollback: &KafkaOffsetRollback) -> Result<()> {
 /// Monitor rollback progress
 pub async fn monitor_progress(
     rollback: &KafkaOffsetRollback,
-    _client: &Client,
-    _namespace: &str,
+    client: &Client,
+    namespace: &str,
 ) -> Result<Action> {
     let name = rollback.name_any();
 
-    info!(name = %name, "Monitoring rollback progress");
-
-    Ok(Action::requeue(Duration::from_secs(2)))
+    // A Running rollback this process did not start was interrupted (#98).
+    match runs::running_state(KIND, &rollback.metadata) {
+        RunningState::Owned => {
+            info!(name = %name, "Monitoring rollback progress");
+            Ok(Action::requeue(Duration::from_secs(2)))
+        }
+        RunningState::Interrupted => {
+            let api: Api<KafkaOffsetRollback> = Api::namespaced(client.clone(), namespace);
+            runs::mark_interrupted(&api, &name, "offset rollback", rollback.metadata.generation)
+                .await?;
+            Ok(Action::await_change())
+        }
+    }
 }
 
 /// Execute a rollback operation
@@ -97,6 +110,7 @@ pub async fn execute(
     }
 
     // Update status to Running
+    runs::record_start(KIND, &rollback.metadata);
     let running_status = json!({
         "status": {
             "phase": "Running",
