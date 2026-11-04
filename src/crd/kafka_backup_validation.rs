@@ -163,7 +163,8 @@ fn default_expected_status() -> u16 {
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct EvidenceSpec {
-    /// Output formats (json, pdf)
+    /// Output formats: json, pdf (case-insensitive). Signing always stores
+    /// the JSON report, since the signature covers its bytes
     #[serde(default = "default_evidence_formats")]
     pub formats: Vec<String>,
 
@@ -171,7 +172,8 @@ pub struct EvidenceSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signing: Option<SigningSpec>,
 
-    /// Storage location for evidence reports
+    /// Storage location for evidence reports (defaults to the backup's
+    /// storage). Reports are written under `evidence-reports/` within it
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storage: Option<StorageSpec>,
 
@@ -196,7 +198,8 @@ pub struct SigningSpec {
     #[serde(default)]
     pub enabled: bool,
 
-    /// Secret containing the ECDSA private key (PEM-encoded)
+    /// Secret containing the ECDSA P-256 private key (PEM-encoded PKCS#8,
+    /// `-----BEGIN PRIVATE KEY-----`)
     pub key_secret: SigningKeyRef,
 }
 
@@ -324,9 +327,30 @@ pub struct KafkaBackupValidationStatus {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub check_results: Vec<CheckResultStatus>,
 
-    /// Path to evidence report in storage
+    /// ID of the evidence report of the last completed validation; the
+    /// directory and file stem of its artifacts in evidence storage
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evidence_report_id: Option<String>,
+
+    /// Key of the JSON evidence report of the last completed validation.
+    /// Evidence keys are relative to the evidence storage
+    /// (`spec.evidence.storage`, or the backup's storage when unset) and its
+    /// prefix, e.g. `evidence-reports/<id>/<yyyy>/<mm>/<id>.json`
     #[serde(skip_serializing_if = "Option::is_none")]
     pub evidence_report_path: Option<String>,
+
+    /// Key of the PDF evidence report of the last completed validation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evidence_pdf_path: Option<String>,
+
+    /// Key of the detached signature envelope of the last completed
+    /// validation (when signing is enabled)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evidence_signature_path: Option<String>,
+
+    /// Lowercase hex SHA-256 of the exact stored JSON evidence report bytes
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evidence_report_sha256: Option<String>,
 
     /// Whether the evidence report is cryptographically signed
     #[serde(skip_serializing_if = "Option::is_none")]

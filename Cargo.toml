@@ -1,6 +1,6 @@
 [package]
 name = "kafka-backup-operator"
-version = "1.6.1"
+version = "1.6.2"
 edition = "2021"
 authors = ["OSO DevOps <dev@oso.sh>"]
 description = "Kubernetes Operator for OSO Kafka Backup"
@@ -61,6 +61,9 @@ http-body-util = "0.1"
 lazy_static = "1.4"
 libc = "0.2"
 
+# Private temporary file for the evidence signing key (core reads keys from a path)
+tempfile = "3.13"
+
 [[bin]]
 name = "kafka-backup-operator"
 path = "src/main.rs"
@@ -73,7 +76,6 @@ path = "src/bin/crdgen.rs"
 tokio-test = "0.4"
 tower-test = "0.4"
 http = "1"
-tempfile = "3.13"
 
 [profile.release]
 lto = true

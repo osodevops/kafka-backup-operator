@@ -20,7 +20,10 @@ use serde_json::json;
 use tracing::{error, info, warn};
 
 use crate::adapters::{
-    build_validation_config, to_core_validation_config, ResolvedBackupSource, ResolvedStorage,
+    build_validation_config, build_validation_report, emit_validation_evidence, evidence_report_id,
+    evidence_storage, send_validation_notifications, to_core_storage_config_for_validation,
+    to_core_validation_config, EvidenceOutcome, ResolvedBackupSource, ResolvedStorage,
+    ValidationReportInputs,
 };
 use crate::crd::{KafkaBackup, KafkaBackupValidation};
 use crate::error::{Error, Result};
@@ -99,8 +102,9 @@ pub fn validate(validation: &KafkaBackupValidation) -> Result<()> {
         }
     }
 
-    // Validate evidence signing has key secret
+    // Validate evidence formats and signing key secret
     if let Some(evidence) = &validation.spec.evidence {
+        validate_evidence_formats(&evidence.formats)?;
         if let Some(signing) = &evidence.signing {
             if signing.enabled && signing.key_secret.name.is_empty() {
                 return Err(Error::validation(
@@ -111,6 +115,47 @@ pub fn validate(validation: &KafkaBackupValidation) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Evidence formats kafka-backup-core can produce.
+const EVIDENCE_FORMATS: [&str; 2] = ["json", "pdf"];
+
+fn validate_evidence_formats(formats: &[String]) -> Result<()> {
+    if formats.is_empty() {
+        return Err(Error::validation(
+            "evidence.formats must list at least one of: json, pdf",
+        ));
+    }
+    for format in formats {
+        if !EVIDENCE_FORMATS.contains(&format.to_lowercase().as_str()) {
+            return Err(Error::validation(format!(
+                "Unsupported evidence format '{}'; supported formats: json, pdf",
+                format
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Status fields describing the evidence of the last completed validation.
+///
+/// Every field is always present: absent artifacts are `null`, so the status
+/// merge patch clears paths left by an earlier run.
+pub fn evidence_status_fields(
+    outcome: Option<&EvidenceOutcome>,
+) -> serde_json::Map<String, serde_json::Value> {
+    let fields = json!({
+        "evidenceReportId": outcome.map(|o| &o.report_id),
+        "evidenceReportPath": outcome.and_then(|o| o.json_path.as_ref()),
+        "evidencePdfPath": outcome.and_then(|o| o.pdf_path.as_ref()),
+        "evidenceSignaturePath": outcome.and_then(|o| o.signature_path.as_ref()),
+        "evidenceReportSha256": outcome.map(|o| &o.report_sha256),
+        "evidenceReportSigned": outcome.map(|o| o.signed),
+    });
+    match fields {
+        serde_json::Value::Object(map) => map,
+        _ => unreachable!("json! object literal"),
+    }
 }
 
 /// Check schedule for recurring validations
@@ -216,10 +261,14 @@ pub async fn execute(
                 })
                 .collect();
 
-            let completed_status = json!({
+            let mut message = format!("Validation completed: {}", result.overall_result);
+            if !result.warnings.is_empty() {
+                message.push_str(&format!(" (warnings: {})", result.warnings.join("; ")));
+            }
+            let mut completed_status = json!({
                 "status": {
                     "phase": "Completed",
-                    "message": format!("Validation completed: {}", result.overall_result),
+                    "message": message,
                     "validationResult": result.overall_result,
                     "completionTime": Utc::now(),
                     "checksTotal": result.checks_total,
@@ -228,8 +277,6 @@ pub async fn execute(
                     "checksFailed": result.checks_failed,
                     "checksWarned": result.checks_warned,
                     "checkResults": check_results,
-                    "evidenceReportPath": result.evidence_report_path,
-                    "evidenceReportSigned": result.evidence_report_signed,
                     "lastValidationTime": Utc::now(),
                     "observedGeneration": validation.metadata.generation,
                     "conditions": [{
@@ -241,6 +288,9 @@ pub async fn execute(
                     }]
                 }
             });
+            if let Some(status) = completed_status["status"].as_object_mut() {
+                status.extend(evidence_status_fields(result.evidence.as_ref()));
+            }
             api.patch_status(
                 &name,
                 &PatchParams::apply("kafka-backup-operator"),
@@ -258,6 +308,12 @@ pub async fn execute(
                 .with_label_values(&["error", namespace, &name])
                 .inc();
 
+            // The checks may have run, but requested evidence that was not
+            // stored makes the run unusable as compliance evidence.
+            let reason = match &e {
+                Error::Evidence(_) => "EvidenceEmissionFailed",
+                _ => "ValidationFailed",
+            };
             let failed_status = json!({
                 "status": {
                     "phase": "Failed",
@@ -267,7 +323,7 @@ pub async fn execute(
                         "type": "Ready",
                         "status": "False",
                         "lastTransitionTime": Utc::now(),
-                        "reason": "ValidationFailed",
+                        "reason": reason,
                         "message": e.to_string()
                     }]
                 }
@@ -292,8 +348,10 @@ struct ValidationInternalResult {
     checks_failed: u32,
     checks_warned: u32,
     check_results: Vec<CheckResult>,
-    evidence_report_path: Option<String>,
-    evidence_report_signed: Option<bool>,
+    /// Evidence written for this run, when `spec.evidence` is set
+    evidence: Option<EvidenceOutcome>,
+    /// Non-fatal findings (PDF generation, notification delivery)
+    warnings: Vec<String>,
 }
 
 struct CheckResult {
@@ -372,12 +430,12 @@ async fn execute_validation_internal(
 
     let ctx = kafka_backup_core::validation::ValidationContext {
         backup_id: backup_id.clone(),
-        backup_manifest: manifest,
+        backup_manifest: manifest.clone(),
         target_client: std::sync::Arc::new(target_router),
         storage: storage_backend,
         pitr_timestamp: None,
         http_client: reqwest::Client::new(),
-        target_bootstrap_servers,
+        target_bootstrap_servers: target_bootstrap_servers.clone(),
     };
 
     // 6. Run all validation checks
@@ -414,14 +472,65 @@ async fn execute_validation_internal(
         })
         .collect();
 
-    // 8. Generate evidence report if configured
-    let (evidence_report_path, evidence_report_signed) = if resolved_config.evidence.is_some() {
-        // Evidence generation will be handled by the core library
-        // For now, report that evidence was generated
-        (None, None)
+    // 8. Evidence report and notifications (issue #93)
+    let mut warnings = Vec::new();
+    let evidence = if resolved_config.evidence.is_some() || resolved_config.notifications.is_some()
+    {
+        let report_id = evidence_report_id(&name, validation.metadata.uid.as_deref(), Utc::now());
+        let report = build_validation_report(ValidationReportInputs {
+            report_id: &report_id,
+            backup_id: &backup_id,
+            manifest: &manifest,
+            manifest_bytes: manifest_data.as_ref(),
+            backup_storage: &storage,
+            target_bootstrap_servers,
+            summary: summary.clone(),
+            evidence: resolved_config.evidence.as_ref(),
+            triggered_by: format!("kafka-backup-operator:{}/{}", namespace, name),
+        });
+
+        let outcome = match &resolved_config.evidence {
+            Some(evidence_config) => {
+                let destination = evidence_storage(evidence_config, &storage);
+                let backend = kafka_backup_core::storage::create_backend(
+                    &to_core_storage_config_for_validation(destination),
+                )
+                .map_err(|e| {
+                    Error::evidence(format!("Failed to create evidence storage backend: {}", e))
+                })?;
+                let outcome =
+                    emit_validation_evidence(backend.as_ref(), &report, evidence_config).await?;
+                info!(
+                    name = %name,
+                    report_id = %outcome.report_id,
+                    json = outcome.json_path.as_deref().unwrap_or("-"),
+                    pdf = outcome.pdf_path.as_deref().unwrap_or("-"),
+                    signature = outcome.signature_path.as_deref().unwrap_or("-"),
+                    sha256 = %outcome.report_sha256,
+                    "Evidence report stored"
+                );
+                warnings.extend(outcome.warnings.iter().cloned());
+                Some(outcome)
+            }
+            None => None,
+        };
+
+        if let Some(notifications) = &resolved_config.notifications {
+            let evidence_url = outcome
+                .as_ref()
+                .and_then(|o| o.json_path.clone().or_else(|| o.pdf_path.clone()))
+                .unwrap_or_default();
+            warnings
+                .extend(send_validation_notifications(notifications, &report, &evidence_url).await);
+        }
+
+        outcome
     } else {
-        (None, None)
+        None
     };
+    for warning in &warnings {
+        warn!(name = %name, warning = %warning, "Validation completed with a warning");
+    }
 
     Ok(ValidationInternalResult {
         overall_result,
@@ -430,8 +539,8 @@ async fn execute_validation_internal(
         checks_failed: summary.checks_failed as u32,
         checks_warned: summary.checks_warned as u32,
         check_results,
-        evidence_report_path,
-        evidence_report_signed,
+        evidence,
+        warnings,
     })
 }
 
