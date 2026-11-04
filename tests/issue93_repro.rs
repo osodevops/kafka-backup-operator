@@ -43,6 +43,15 @@ MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEOPnICFGKTCWyQdfbV34cnAr52nZm
 -----END PUBLIC KEY-----
 ";
 
+/// A second test-only key, used by no other test: the temp-file cleanup test
+/// scans the temp directory for it while other tests sign in parallel.
+const CLEANUP_TEST_KEY_PKCS8: &str = "-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgGefGcb1orxunzut5
+urP2hi0z0datzx9ePFQNtamFZtehRANCAARHisA4dnARr4IZ0txMNacAMIHbQ6nw
+2wJHQTa2VPz5vsWPZsyKImeLVDlp3yfNZtw5mIDyfARk9gmpogQMATn2
+-----END PRIVATE KEY-----
+";
+
 const AZURE_ACCOUNT_KEY: &str = "c2VjcmV0LWFjY291bnQta2V5LW5vdC1mb3ItcmVwb3J0cw==";
 
 fn manifest_bytes() -> Vec<u8> {
@@ -228,7 +237,7 @@ async fn signed_evidence_verifies_against_the_public_key() {
 async fn signing_key_temp_file_is_removed_after_emission() {
     let dir = tempfile::tempdir().unwrap();
     let storage = local_storage(dir.path());
-    let evidence = evidence_config(&["json"], Some(TEST_PRIVATE_KEY_PKCS8));
+    let evidence = evidence_config(&["json"], Some(CLEANUP_TEST_KEY_PKCS8));
     let manifest = manifest_bytes();
     let report = report(&manifest, &storage, Some(&evidence), CheckOutcome::Passed);
 
@@ -245,16 +254,19 @@ async fn signing_key_temp_file_is_removed_after_emission() {
             })
             .filter(|e| {
                 std::fs::read_to_string(e.path())
-                    .map(|c| c.contains("MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgVF1f"))
+                    .map(|c| {
+                        c.contains(
+                            "urP2hi0z0datzx9ePFQNtamFZtehRANCAARHisA4dnARr4IZ0txMNacAMIHbQ6nw",
+                        )
+                    })
                     .unwrap_or(false)
             })
             .count()
     };
-    let before = leftover(&key_dir);
     emit_validation_evidence(backend(&storage).as_ref(), &report, &evidence)
         .await
         .expect("signed evidence emitted");
-    assert_eq!(leftover(&key_dir), before, "signing key left on disk");
+    assert_eq!(leftover(&key_dir), 0, "signing key left on disk");
 }
 
 /// The CLI records `format!("{:?}", storage_config)` as the storage backend,

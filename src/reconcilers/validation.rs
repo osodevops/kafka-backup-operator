@@ -7,17 +7,20 @@
 //! - Evidence report generation
 //! - Notification delivery
 
+use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
+use cron::Schedule;
 use kube::{
     api::{Patch, PatchParams},
     runtime::controller::Action,
     Api, Client, ResourceExt,
 };
 use serde_json::json;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::adapters::{
     build_validation_config, build_validation_report, emit_validation_evidence, evidence_report_id,
@@ -158,11 +161,122 @@ pub fn evidence_status_fields(
     }
 }
 
-/// Check schedule for recurring validations
+/// Longest a scheduled validation waits before re-checking its schedule, so
+/// a lost requeue is recovered.
+const MAX_SCHEDULE_REQUEUE: Duration = Duration::from_secs(300);
+
+/// Process-local record of when this operator last started a scheduled run
+/// of each `{namespace}/{name}`.
+///
+/// `status.startTime` (written in the `Running` patch before the checks run)
+/// is the durable anchor, but it is read from the reflector cache, which can
+/// lag our own patches by tens of milliseconds. A fast validation can finish
+/// and be reconciled again while the cache still shows the previous run; this
+/// guard stops that reconcile from firing the same tick twice. Same approach
+/// as the KafkaBackup scheduler.
+fn scheduler_guard() -> &'static Mutex<HashMap<String, DateTime<Utc>>> {
+    static GUARD: OnceLock<Mutex<HashMap<String, DateTime<Utc>>>> = OnceLock::new();
+    GUARD.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn guard_key(validation: &KafkaBackupValidation) -> String {
+    format!(
+        "{}/{}",
+        validation.namespace().unwrap_or_default(),
+        validation.name_any()
+    )
+}
+
+fn parsed_schedule(validation: &KafkaBackupValidation) -> Option<Schedule> {
+    validation
+        .spec
+        .schedule
+        .as_deref()
+        .and_then(|s| Schedule::from_str(s).ok())
+}
+
+/// Whether a cron tick has passed since `anchor`.
+fn tick_passed_since(schedule: &Schedule, anchor: DateTime<Utc>, now: DateTime<Utc>) -> bool {
+    schedule
+        .after(&anchor)
+        .next()
+        .is_some_and(|next_tick| next_tick <= now)
+}
+
+/// Whether a scheduled validation that has already run is due to run again.
+///
+/// Due when a cron tick has passed since the last run started
+/// (`status.startTime`, falling back to the creation time), unless this
+/// process already fired that tick (see [`scheduler_guard`]). Never due for
+/// one-shot, suspended, or unparseable schedules.
+pub fn scheduled_validation_due(validation: &KafkaBackupValidation, now: DateTime<Utc>) -> bool {
+    if validation.spec.suspend {
+        return false;
+    }
+    let Some(schedule) = parsed_schedule(validation) else {
+        return false;
+    };
+
+    let anchor = validation
+        .status
+        .as_ref()
+        .and_then(|s| s.start_time)
+        .or_else(|| validation.metadata.creation_timestamp.as_ref().map(|t| t.0))
+        .unwrap_or(now);
+    if !tick_passed_since(&schedule, anchor, now) {
+        return false;
+    }
+
+    let fired = scheduler_guard()
+        .lock()
+        .unwrap()
+        .get(&guard_key(validation))
+        .copied();
+    match fired {
+        Some(fired_at) => tick_passed_since(&schedule, fired_at, now),
+        None => true,
+    }
+}
+
+/// Record that this process started a scheduled run of `validation`.
+pub fn record_scheduled_run(validation: &KafkaBackupValidation, now: DateTime<Utc>) {
+    scheduler_guard()
+        .lock()
+        .unwrap()
+        .insert(guard_key(validation), now);
+}
+
+/// The next cron tick after `now`, for scheduled validations.
+pub fn next_validation_time(
+    validation: &KafkaBackupValidation,
+    now: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    parsed_schedule(validation).and_then(|schedule| schedule.after(&now).next())
+}
+
+/// Requeue until the next cron tick (capped), or wait for a spec change for
+/// one-shot validations.
+pub fn requeue_until_next_run(validation: &KafkaBackupValidation, now: DateTime<Utc>) -> Action {
+    if validation.spec.schedule.is_none() {
+        return Action::await_change();
+    }
+    match next_validation_time(validation, now) {
+        Some(next) => Action::requeue(
+            (next - now)
+                .to_std()
+                .unwrap_or(Duration::from_secs(1))
+                .min(MAX_SCHEDULE_REQUEUE),
+        ),
+        None => Action::requeue(MAX_SCHEDULE_REQUEUE),
+    }
+}
+
+/// Handle a validation whose current spec has already run: run it again
+/// when its schedule is due, otherwise requeue for the next tick.
 pub async fn check_schedule(
     validation: &KafkaBackupValidation,
-    _client: &Client,
-    _namespace: &str,
+    client: &Client,
+    namespace: &str,
 ) -> Result<Action> {
     let name = validation.name_any();
 
@@ -171,32 +285,30 @@ pub async fn check_schedule(
         return Ok(Action::requeue(Duration::from_secs(60)));
     }
 
-    match &validation.spec.schedule {
-        Some(schedule) => match cron::Schedule::from_str(schedule) {
-            Ok(cron_schedule) => {
-                let now = Utc::now();
-                if let Some(next) = cron_schedule.upcoming(Utc).next() {
-                    let duration_until = (next - now).to_std().unwrap_or(Duration::from_secs(60));
-                    info!(
-                        name = %name,
-                        next = %next,
-                        "Next scheduled validation"
-                    );
-                    Ok(Action::requeue(duration_until))
-                } else {
-                    Ok(Action::requeue(Duration::from_secs(3600)))
-                }
-            }
-            Err(e) => {
-                warn!(name = %name, error = %e, "Invalid cron schedule");
-                Ok(Action::requeue(Duration::from_secs(300)))
-            }
-        },
-        None => {
-            // One-shot validation, no rescheduling
-            Ok(Action::await_change())
-        }
+    let Some(schedule) = &validation.spec.schedule else {
+        // One-shot validation, no rescheduling
+        return Ok(Action::await_change());
+    };
+    if Schedule::from_str(schedule).is_err() {
+        warn!(name = %name, schedule = %schedule, "Invalid cron schedule");
+        return Ok(Action::requeue(MAX_SCHEDULE_REQUEUE));
     }
+
+    let now = Utc::now();
+    if scheduled_validation_due(validation, now) {
+        // Record before executing so a reconcile triggered by our own
+        // Running patch, reading a stale cache, does not fire this tick again.
+        record_scheduled_run(validation, now);
+        info!(name = %name, "Scheduled validation time reached, running validation");
+        return execute(validation, client, namespace).await;
+    }
+
+    debug!(
+        name = %name,
+        next = ?next_validation_time(validation, now),
+        "Next scheduled validation"
+    );
+    Ok(requeue_until_next_run(validation, now))
 }
 
 /// Execute a validation operation
@@ -278,6 +390,7 @@ pub async fn execute(
                     "checksWarned": result.checks_warned,
                     "checkResults": check_results,
                     "lastValidationTime": Utc::now(),
+                    "nextScheduledValidation": next_validation_time(validation, Utc::now()),
                     "observedGeneration": validation.metadata.generation,
                     "conditions": [{
                         "type": "Ready",
@@ -298,8 +411,9 @@ pub async fn execute(
             )
             .await?;
 
-            // Schedule next validation if recurring
-            check_schedule(validation, client, namespace).await
+            // Wait for the next tick. Not check_schedule(): `validation` is the
+            // pre-run object, whose old startTime would make the tick look due.
+            Ok(requeue_until_next_run(validation, Utc::now()))
         }
         Err(e) => {
             error!(name = %name, error = %e, "Validation failed");
@@ -318,6 +432,7 @@ pub async fn execute(
                 "status": {
                     "phase": "Failed",
                     "message": format!("Validation failed: {}", e),
+                    "nextScheduledValidation": next_validation_time(validation, Utc::now()),
                     "observedGeneration": validation.metadata.generation,
                     "conditions": [{
                         "type": "Ready",
@@ -616,5 +731,34 @@ pub async fn update_status_failed(
     )
     .await?;
 
+    Ok(())
+}
+
+/// Whether a new spec generation runs at once. A suspended validation does
+/// not run: setting `suspend: true` is itself a spec change.
+pub fn runs_on_spec_change(validation: &KafkaBackupValidation) -> bool {
+    !validation.spec.suspend
+}
+
+/// Record a new generation of a suspended validation without running it.
+pub async fn record_suspended(
+    validation: &KafkaBackupValidation,
+    client: &Client,
+    namespace: &str,
+) -> Result<()> {
+    let api: Api<KafkaBackupValidation> = Api::namespaced(client.clone(), namespace);
+    let status = json!({
+        "status": {
+            "message": "Validation is suspended",
+            "nextScheduledValidation": null,
+            "observedGeneration": validation.metadata.generation,
+        }
+    });
+    api.patch_status(
+        &validation.name_any(),
+        &PatchParams::apply("kafka-backup-operator"),
+        &Patch::Merge(status),
+    )
+    .await?;
     Ok(())
 }
