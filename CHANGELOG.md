@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.1 - 2026-11-07
+
+Uses `kafka-backup-core` `v0.27.3`. CRD schemas are unchanged.
+
+### Fixed
+
+- Restore logs now report payload bytes and throughput for both ordinary and repartitioned restores ([kafka-backup#251](https://github.com/osodevops/kafka-backup/issues/251)). The final summary uses restore counters and shows segments read instead of unmeasured backup compression and write latencies. Bytes mean restored key plus value lengths, excluding headers and protocol overhead; failed batches are excluded. This also fixes the performance collector on checkpoint-tail reconciliation.
+
 ## 1.7.0 - 2026-11-04
 
 Uses `kafka-backup-core` `v0.27.0` (from `v0.26.1`: 0.26.2 keeps storage credentials out of `Debug` output and validation reports; 0.27.0 adds backup rate limits). The CRD changes only in field descriptions.
