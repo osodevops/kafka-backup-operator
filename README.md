@@ -6,7 +6,7 @@
 
 A Kubernetes operator for automated Kafka backup and disaster recovery. Built with Rust using [kube-rs](https://kube.rs/) for high performance and reliability.
 
-**Release candidate: v1.4.5** (embeds `kafka-backup-core` v0.25.2). See [Upgrade Notes](#upgrade-notes).
+**Latest release: v1.7.1** (embeds `kafka-backup-core` v0.27.3). See [Upgrade Notes](#upgrade-notes).
 
 ## Features
 
@@ -85,6 +85,10 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 | `KafkaBackupValidation` | `kbv` | Validate backups and produce evidence reports |
 
 ## Upgrade Notes
+
+### 1.7.1
+
+Uses `kafka-backup-core` `v0.27.3`. Restore logs report key plus value payload bytes, throughput and segments read, including for repartitioned restores. CRD schemas are unchanged.
 
 ### 1.7.0
 
