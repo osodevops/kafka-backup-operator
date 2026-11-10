@@ -6,7 +6,7 @@
 
 A Kubernetes operator for automated Kafka backup and disaster recovery. Built with Rust using [kube-rs](https://kube.rs/) for high performance and reliability.
 
-**Latest release: v1.7.1** (embeds `kafka-backup-core` v0.27.3). See [Upgrade Notes](#upgrade-notes).
+**Latest release: v1.8.0** (embeds `kafka-backup-core` v0.28.0). See [Upgrade Notes](#upgrade-notes).
 
 ## Features
 
@@ -85,6 +85,12 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 | `KafkaBackupValidation` | `kbv` | Validate backups and produce evidence reports |
 
 ## Upgrade Notes
+
+### 1.8.0
+
+Uses `kafka-backup-core` `v0.28.0` to retry empty Fetch responses below the captured backup end. `spec.emptyFetchRetrySecs` defaults to 30 seconds (range 0–3600; zero fails immediately), and `spec.kafkaCluster.connection.fetchMaxWaitMs` defaults to 500 ms (range 0–30000). The no-progress budget includes backoff and subsequent requests and resets on offset progress. Expiry fails the backup while retaining its durable prefix. With KIP-1018 Kafka remote reads use broker `remote.fetch.max.wait.ms` independently of the client wait.
+
+**Upgrade the CRDs before the operator** so Kubernetes preserves and validates these settings. For Helm, apply the release's [`crds.yaml`](https://github.com/osodevops/kafka-backup-operator/releases/download/v1.8.0/crds.yaml) bundle explicitly; Helm does not upgrade existing CRDs automatically.
 
 ### 1.7.1
 

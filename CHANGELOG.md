@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.8.0 - 2026-11-10
+
+Uses `kafka-backup-core` `v0.28.0` to prevent successful backups with unread data after empty Fetch responses (kafka-backup#256).
+
+- Add `KafkaBackup.spec.emptyFetchRetrySecs` (default 30, range 0–3600; zero fails immediately) and shared `kafkaCluster.connection.fetchMaxWaitMs` (default 500, range 0–30000), with admission bounds and adapter coverage.
+- Bound stalled Fetch retries across backoff and in-flight requests; preserve durable progress on failure and close interrupted connections.
+- Upgrade the CRDs before the operator. Helm users must apply the CRD bundle explicitly because Helm does not upgrade installed CRDs.
+
 ## 1.7.1 - 2026-11-07
 
 Uses `kafka-backup-core` `v0.27.3`. CRD schemas are unchanged.

@@ -117,6 +117,13 @@ spec:
                 default: false
                 description: Run continuously instead of completing after one pass
                 type: boolean
+              emptyFetchRetrySecs:
+                default: 30
+                description: Per-partition no-progress retry budget in seconds (default 30, 0–3600). Zero fails immediately on the first empty Fetch below the captured end. Includes backoff and subsequent requests; resets when offsets advance. Expiry fails the backup while preserving its durable prefix.
+                format: uint64
+                maximum: 3600.0
+                minimum: 0.0
+                type: integer
               excludeTopics:
                 description: 'Topics to leave out, names or globs (* and ?). Applied after `topics`, so `topics: ["*"]` with an exclude list also backs up every topic created later.'
                 items:
@@ -156,6 +163,13 @@ spec:
                         default: 4
                         description: Number of TCP connections to maintain per broker
                         format: uint
+                        minimum: 0.0
+                        type: integer
+                      fetchMaxWaitMs:
+                        default: 500
+                        description: Broker Fetch wait in milliseconds (default 500, 0–30000). Older Kafka remote reads may use this too; with KIP-1018 remote reads instead use broker remote.fetch.max.wait.ms. Does not extend the retry budget.
+                        format: int32
+                        maximum: 30000.0
                         minimum: 0.0
                         type: integer
                       keepaliveIntervalSecs:
@@ -1068,6 +1082,13 @@ spec:
                         format: uint
                         minimum: 0.0
                         type: integer
+                      fetchMaxWaitMs:
+                        default: 500
+                        description: Broker Fetch wait in milliseconds (default 500, 0–30000). Older Kafka remote reads may use this too; with KIP-1018 remote reads instead use broker remote.fetch.max.wait.ms. Does not extend the retry budget.
+                        format: int32
+                        maximum: 30000.0
+                        minimum: 0.0
+                        type: integer
                       keepaliveIntervalSecs:
                         default: 20
                         description: Interval in seconds between keepalive probes
@@ -1530,6 +1551,13 @@ spec:
                         format: uint
                         minimum: 0.0
                         type: integer
+                      fetchMaxWaitMs:
+                        default: 500
+                        description: Broker Fetch wait in milliseconds (default 500, 0–30000). Older Kafka remote reads may use this too; with KIP-1018 remote reads instead use broker remote.fetch.max.wait.ms. Does not extend the retry budget.
+                        format: int32
+                        maximum: 30000.0
+                        minimum: 0.0
+                        type: integer
                       keepaliveIntervalSecs:
                         default: 20
                         description: Interval in seconds between keepalive probes
@@ -1861,6 +1889,13 @@ spec:
                         default: 4
                         description: Number of TCP connections to maintain per broker
                         format: uint
+                        minimum: 0.0
+                        type: integer
+                      fetchMaxWaitMs:
+                        default: 500
+                        description: Broker Fetch wait in milliseconds (default 500, 0–30000). Older Kafka remote reads may use this too; with KIP-1018 remote reads instead use broker remote.fetch.max.wait.ms. Does not extend the retry budget.
+                        format: int32
+                        maximum: 30000.0
                         minimum: 0.0
                         type: integer
                       keepaliveIntervalSecs:
@@ -2683,6 +2718,13 @@ spec:
                         default: 4
                         description: Number of TCP connections to maintain per broker
                         format: uint
+                        minimum: 0.0
+                        type: integer
+                      fetchMaxWaitMs:
+                        default: 500
+                        description: Broker Fetch wait in milliseconds (default 500, 0–30000). Older Kafka remote reads may use this too; with KIP-1018 remote reads instead use broker remote.fetch.max.wait.ms. Does not extend the retry budget.
+                        format: int32
+                        maximum: 30000.0
                         minimum: 0.0
                         type: integer
                       keepaliveIntervalSecs:

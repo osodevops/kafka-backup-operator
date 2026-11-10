@@ -83,6 +83,14 @@ pub struct KafkaBackupSpec {
     #[serde(default = "default_poll_interval_ms")]
     pub poll_interval_ms: u64,
 
+    /// Per-partition no-progress retry budget in seconds (default 30, 0–3600).
+    /// Zero fails immediately on the first empty Fetch below the captured end.
+    /// Includes backoff and subsequent requests; resets when offsets advance.
+    /// Expiry fails the backup while preserving its durable prefix.
+    #[serde(default = "default_empty_fetch_retry_secs")]
+    #[schemars(range(min = 0, max = 3600))]
+    pub empty_fetch_retry_secs: u64,
+
     /// Snapshot consumer group offsets to storage after each backup cycle
     #[serde(default)]
     pub consumer_group_snapshot: bool,
@@ -215,6 +223,13 @@ pub struct KafkaConnectionSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 7, max = 8))]
     pub produce_api_version: Option<i16>,
+
+    /// Broker Fetch wait in milliseconds (default 500, 0–30000). Older Kafka
+    /// remote reads may use this too; with KIP-1018 remote reads instead use
+    /// broker remote.fetch.max.wait.ms. Does not extend the retry budget.
+    #[serde(default = "default_fetch_max_wait_ms")]
+    #[schemars(range(min = 0, max = 30000))]
+    pub fetch_max_wait_ms: i32,
 }
 
 fn default_keepalive_time_secs() -> u64 {
@@ -223,6 +238,14 @@ fn default_keepalive_time_secs() -> u64 {
 
 fn default_keepalive_interval_secs() -> u64 {
     20
+}
+
+fn default_empty_fetch_retry_secs() -> u64 {
+    30
+}
+
+fn default_fetch_max_wait_ms() -> i32 {
+    500
 }
 
 fn default_connections_per_broker() -> usize {
