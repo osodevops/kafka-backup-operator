@@ -57,6 +57,7 @@ pub struct ResolvedKafkaConnectionConfig {
     pub tcp_nodelay: bool,
     pub connections_per_broker: usize,
     pub produce_api_version: Option<i16>,
+    pub fetch_max_wait_ms: i32,
 }
 
 impl Default for ResolvedKafkaConnectionConfig {
@@ -68,6 +69,7 @@ impl Default for ResolvedKafkaConnectionConfig {
             tcp_nodelay: true,
             connections_per_broker: 4,
             produce_api_version: None,
+            fetch_max_wait_ms: 500,
         }
     }
 }
@@ -134,6 +136,7 @@ pub struct ResolvedBackupOptionsConfig {
     pub include_offset_headers: bool,
     pub source_cluster_id: Option<String>,
     pub poll_interval_ms: u64,
+    pub empty_fetch_retry_secs: u64,
     pub consumer_group_snapshot: bool,
     pub on_missing_topic: OnMissingTopicPolicy,
 }
@@ -184,6 +187,7 @@ pub async fn build_backup_config(
         include_offset_headers: backup.spec.include_offset_headers,
         source_cluster_id: backup.spec.source_cluster_id.clone(),
         poll_interval_ms: backup.spec.poll_interval_ms,
+        empty_fetch_retry_secs: backup.spec.empty_fetch_retry_secs,
         consumer_group_snapshot: backup.spec.consumer_group_snapshot,
         on_missing_topic: backup.spec.on_missing_topic,
     };
@@ -277,6 +281,7 @@ fn build_connection_config(connection: &KafkaConnectionSpec) -> ResolvedKafkaCon
         tcp_nodelay: connection.tcp_nodelay,
         connections_per_broker: connection.connections_per_broker,
         produce_api_version: connection.produce_api_version,
+        fetch_max_wait_ms: connection.fetch_max_wait_ms,
     }
 }
 

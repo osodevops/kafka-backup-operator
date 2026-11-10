@@ -73,6 +73,7 @@ fn valid_backup_spec() -> KafkaBackupSpec {
         include_offset_headers: true,
         source_cluster_id: None,
         poll_interval_ms: 100,
+        empty_fetch_retry_secs: 30,
         consumer_group_snapshot: false,
         // cron crate uses 7-field format: sec min hour day_of_month month day_of_week year
         schedule: Some("0 0 0 * * * *".to_string()),

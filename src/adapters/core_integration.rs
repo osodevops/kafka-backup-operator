@@ -155,6 +155,7 @@ pub fn to_core_connection_config(resolved: &ResolvedKafkaConfig) -> ConnectionCo
         tcp_nodelay: resolved.connection.tcp_nodelay,
         connections_per_broker: resolved.connection.connections_per_broker,
         produce_api_version: resolved.connection.produce_api_version,
+        fetch_max_wait_ms: resolved.connection.fetch_max_wait_ms,
     }
 }
 
@@ -383,6 +384,7 @@ fn to_core_backup_options(resolved: &ResolvedBackupConfig) -> BackupOptions {
         poll_interval_ms: resolved.backup_options.poll_interval_ms,
         consumer_group_snapshot: resolved.backup_options.consumer_group_snapshot,
         fetch_max_bytes: None,
+        empty_fetch_retry_secs: resolved.backup_options.empty_fetch_retry_secs,
         segment_max_records: None,
         // Topic-level config overrides are captured into the manifest so a
         // restore can re-apply them; a broker that refuses DescribeConfigs
