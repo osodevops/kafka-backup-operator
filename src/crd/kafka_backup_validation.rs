@@ -43,11 +43,12 @@ pub struct KafkaBackupValidationSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notifications: Option<NotificationsSpec>,
 
-    /// Cron schedule for recurring validation
+    /// Cron schedule for recurring validation (six or seven fields, including seconds, UTC).
+    /// If omitted, runs only on creation or spec changes. Does not inherit the backup schedule.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schedule: Option<String>,
 
-    /// Suspend validations
+    /// Pause initial, spec-change and scheduled validations. False alone does not enable recurrence.
     #[serde(default)]
     pub suspend: bool,
 }
