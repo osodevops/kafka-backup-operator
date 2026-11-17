@@ -6,7 +6,7 @@
 
 A Kubernetes operator for automated Kafka backup and disaster recovery. Built with Rust using [kube-rs](https://kube.rs/) for high performance and reliability.
 
-**Latest release: v1.8.0** (embeds `kafka-backup-core` v0.28.0). See [Upgrade Notes](#upgrade-notes).
+**Latest release: v1.8.1** (embeds `kafka-backup-core` v0.28.1). See [Upgrade Notes](#upgrade-notes).
 
 ## Features
 
@@ -85,6 +85,20 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 | `KafkaBackupValidation` | `kbv` | Validate backups and produce evidence reports |
 
 ## Upgrade Notes
+
+### 1.8.1
+
+Uses `kafka-backup-core` `v0.28.1`. `KafkaBackupValidation` message counts now
+scan visible target records instead of subtracting Kafka offsets, which can
+include compaction holes and transaction markers (#114). The validation
+principal needs Kafka `READ` permission on the selected topics. Allow time and
+network capacity for their partitions. Expected archive counts also apply replay's
+overlap and PITR rules. Existing archives remain readable.
+
+A validation without `spec.schedule` runs on creation or spec changes only;
+`suspend: false` does not enable recurring checks. See
+[Recurring backup validation](#recurring-backup-validation) for an explicit
+schedule example (#115). CRD changes in this release are descriptions only.
 
 ### 1.8.0
 
@@ -390,6 +404,45 @@ For scheduled point-in-time backups, each run writes a new backup ID. For contin
 Object storage lifecycle policies are still a good option when retention should be managed outside the operator. Operator-managed retention for GCS is not currently wired; use a GCS bucket lifecycle policy for that backend.
 
 The `retentionDays` field belongs to `KafkaBackupValidation` evidence retention and does not control `KafkaBackup` data retention.
+
+### Recurring backup validation
+
+`KafkaBackupValidation` runs once when created and again when its spec changes.
+Without `spec.schedule`, it is a one-shot resource: `suspend: false` permits a
+run but does not enable recurring checks. Validation does not inherit the
+referenced `KafkaBackup` schedule. To run it regularly, set an explicit cron
+schedule (six or seven fields, including seconds, in UTC):
+
+```yaml
+apiVersion: kafka.oso.sh/v1alpha1
+kind: KafkaBackupValidation
+metadata:
+  name: orders-validation
+spec:
+  backupRef:
+    name: orders-backup
+  kafkaCluster:
+    bootstrapServers: ["kafka-dr:9092"]
+  checks:
+    messageCount:
+      enabled: true
+      topics: ["orders"]
+  schedule: "0 30 2 * * *" # Daily at 02:30 UTC
+  suspend: false
+```
+
+If the backup runs at 02:00 UTC, choose a validation time after its usual
+completion, such as 02:30 UTC above. Cron alone does not wait for backup
+completion. Omitting `backupRef.backupId` resolves the referenced backup's
+current `status.backupId` on every run. Setting an ID pins validation to that
+archive instead. Inspect `status.nextScheduledValidation`, `startTime` and
+`lastValidationTime` to confirm the cadence. Set `suspend: true` to pause runs.
+
+The message count check reads the configured target Kafka cluster; it is not a
+restore dry-run. Compare a completed restore in a quiet target with the same
+selected topics. New records, target retention or compaction can produce a real
+count difference. `restore --dry-run` and `validate-restore` are separate core
+CLI operations that inspect the archive without producing records.
 
 ### Restore from Backup
 

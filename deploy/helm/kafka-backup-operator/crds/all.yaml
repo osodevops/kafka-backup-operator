@@ -2856,12 +2856,12 @@ spec:
                     type: object
                 type: object
               schedule:
-                description: Cron schedule for recurring validation
+                description: Cron schedule for recurring validation (six or seven fields, including seconds, UTC). If omitted, runs only on creation or spec changes. Does not inherit the backup schedule.
                 nullable: true
                 type: string
               suspend:
                 default: false
-                description: Suspend validations
+                description: Pause initial, spec-change and scheduled validations. False alone does not enable recurrence.
                 type: boolean
             required:
             - backupRef

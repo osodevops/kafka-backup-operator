@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.8.1 - 2026-11-17
+
+### Fixed
+
+- Embed core 0.28.1: validation counts visible target records instead of offset spans, and archive counts follow replay overlap/PITR rules (#114). Exact target counts scan records and can take longer than the former offset query.
+- Document that unscheduled `KafkaBackupValidation` resources run once on creation or spec change. `suspend: false` does not enable recurrence; add an explicit schedule after backup completion. Include a daily example and clarify that backup schedules are not inherited (#115).
+
 ## 1.8.0 - 2026-11-10
 
 Uses `kafka-backup-core` `v0.28.0` to prevent successful backups with unread data after empty Fetch responses (kafka-backup#256).
