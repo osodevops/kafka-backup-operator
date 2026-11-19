@@ -9,6 +9,12 @@ A Kubernetes operator for automated Kafka backup and disaster recovery. Built wi
 
 **Latest release: v1.8.1** (embeds `kafka-backup-core` v0.28.1). See [Upgrade Notes](#upgrade-notes).
 
+## Sponsorship
+
+kafka-backup-operator is free and open source. If your company relies on it, please consider [sponsoring it through GitHub Sponsors](https://github.com/sponsors/osodevops). Sponsorship pays for testing against new Kafka versions and distributions, release engineering, security fixes and documentation.
+
+Need support, an SLA or Enterprise features? See [Kafka Backup Enterprise](https://enterprise.kafkabackup.com).
+
 ## Features
 
 - **Scheduled Backups** - Cron-based automatic backups for point-in-time backup runs
