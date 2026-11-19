@@ -76,12 +76,15 @@ pub struct AzureStorageConfig {
     pub endpoint: Option<String>,
 }
 
-/// GCS storage configuration with resolved credentials
+/// GCS storage configuration with resolved credentials.
+///
+/// `service_account_json` is `None` when the backup uses Workload Identity.
+/// Core then leaves `service_account_path` unset and uses Application Default Credentials.
 #[derive(Debug, Clone)]
 pub struct GcsStorageConfig {
     pub bucket: String,
     pub prefix: Option<String>,
-    pub service_account_json: String,
+    pub service_account_json: Option<String>,
 }
 
 /// Build resolved storage configuration from CRD spec
@@ -273,14 +276,32 @@ async fn build_gcs_storage(
     let gcs =
         gcs.ok_or_else(|| Error::config("GCS configuration is required for gcs storage type"))?;
 
-    // Fetch credentials from Kubernetes secret
-    let service_account_json = get_gcs_credentials(
-        client,
-        namespace,
-        &gcs.credentials_secret.name,
-        &gcs.credentials_secret.service_account_json_key,
-    )
-    .await?;
+    if gcs.use_workload_identity && gcs.credentials_secret.is_some() {
+        return Err(Error::config(
+            "GCS useWorkloadIdentity and credentialsSecret are mutually exclusive",
+        ));
+    }
+
+    let service_account_json = if gcs.use_workload_identity {
+        tracing::info!(
+            bucket = %gcs.bucket,
+            "Using GKE Workload Identity / Application Default Credentials for GCS"
+        );
+        None
+    } else {
+        let creds = gcs.credentials_secret.as_ref().ok_or_else(|| {
+            Error::config("GCS credentialsSecret is required unless useWorkloadIdentity is true")
+        })?;
+        Some(
+            get_gcs_credentials(
+                client,
+                namespace,
+                &creds.name,
+                &creds.service_account_json_key,
+            )
+            .await?,
+        )
+    };
 
     Ok(ResolvedStorage::Gcs(GcsStorageConfig {
         bucket: gcs.bucket.clone(),

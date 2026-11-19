@@ -376,6 +376,39 @@ spec:
   schedule: "0 0 */4 * * * *"
 ```
 
+### Backup to Google Cloud Storage (GKE Workload Identity)
+
+Leave `credentialsSecret` unset and set `useWorkloadIdentity: true`. The operator pod then uses [Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials): on GKE that is the GCP service account bound to the operator's Kubernetes service account. No JSON key is stored in the cluster.
+
+```yaml
+apiVersion: kafka.oso.sh/v1alpha1
+kind: KafkaBackup
+metadata:
+  name: gcs-backup
+spec:
+  kafkaCluster:
+    bootstrapServers:
+      - kafka:9092
+  topics:
+    - orders
+  storage:
+    storageType: gcs
+    gcs:
+      bucket: my-kafka-backups
+      prefix: production
+      useWorkloadIdentity: true
+  schedule: "0 0 2 * * *"
+  stopAtCurrentOffsets: true
+```
+
+Annotate the operator ServiceAccount (Helm: `serviceAccount.annotations`):
+
+```yaml
+iam.gke.io/gcp-service-account: kafka-backup@PROJECT_ID.iam.gserviceaccount.com
+```
+
+`credentialsSecret` remains required when `useWorkloadIdentity` is false. Setting both is rejected. See [docs/gcs-workload-identity.md](docs/gcs-workload-identity.md).
+
 ## Backup Retention
 
 Operator-managed `KafkaBackup` retention is disabled by default. Enable it per backup when you want the operator to prune complete backup sets from storage after a successful backup run:

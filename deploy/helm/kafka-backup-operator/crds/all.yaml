@@ -458,7 +458,8 @@ spec:
                         description: GCS bucket name
                         type: string
                       credentialsSecret:
-                        description: Credentials secret reference
+                        description: Credentials secret reference. Required unless `useWorkloadIdentity` is true.
+                        nullable: true
                         properties:
                           name:
                             description: Secret name
@@ -474,9 +475,17 @@ spec:
                         description: Path prefix within bucket
                         nullable: true
                         type: string
+                      useWorkloadIdentity:
+                        default: false
+                        description: |-
+                          Use GKE Workload Identity (Application Default Credentials).
+
+                          When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses ADC: `GOOGLE_APPLICATION_CREDENTIALS`, or the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
+
+                          Mutually exclusive with `credentialsSecret`. Defaults to false so a backup that forgets its secret does not silently use the node identity.
+                        type: boolean
                     required:
                     - bucket
-                    - credentialsSecret
                     type: object
                   pvc:
                     description: PVC storage configuration
@@ -878,7 +887,8 @@ spec:
                             description: GCS bucket name
                             type: string
                           credentialsSecret:
-                            description: Credentials secret reference
+                            description: Credentials secret reference. Required unless `useWorkloadIdentity` is true.
+                            nullable: true
                             properties:
                               name:
                                 description: Secret name
@@ -894,9 +904,17 @@ spec:
                             description: Path prefix within bucket
                             nullable: true
                             type: string
+                          useWorkloadIdentity:
+                            default: false
+                            description: |-
+                              Use GKE Workload Identity (Application Default Credentials).
+
+                              When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses ADC: `GOOGLE_APPLICATION_CREDENTIALS`, or the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
+
+                              Mutually exclusive with `credentialsSecret`. Defaults to false so a backup that forgets its secret does not silently use the node identity.
+                            type: boolean
                         required:
                         - bucket
-                        - credentialsSecret
                         type: object
                       pvc:
                         description: PVC storage configuration
@@ -2253,7 +2271,8 @@ spec:
                             description: GCS bucket name
                             type: string
                           credentialsSecret:
-                            description: Credentials secret reference
+                            description: Credentials secret reference. Required unless `useWorkloadIdentity` is true.
+                            nullable: true
                             properties:
                               name:
                                 description: Secret name
@@ -2269,9 +2288,17 @@ spec:
                             description: Path prefix within bucket
                             nullable: true
                             type: string
+                          useWorkloadIdentity:
+                            default: false
+                            description: |-
+                              Use GKE Workload Identity (Application Default Credentials).
+
+                              When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses ADC: `GOOGLE_APPLICATION_CREDENTIALS`, or the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
+
+                              Mutually exclusive with `credentialsSecret`. Defaults to false so a backup that forgets its secret does not silently use the node identity.
+                            type: boolean
                         required:
                         - bucket
-                        - credentialsSecret
                         type: object
                       pvc:
                         description: PVC storage configuration
@@ -2575,7 +2602,8 @@ spec:
                             description: GCS bucket name
                             type: string
                           credentialsSecret:
-                            description: Credentials secret reference
+                            description: Credentials secret reference. Required unless `useWorkloadIdentity` is true.
+                            nullable: true
                             properties:
                               name:
                                 description: Secret name
@@ -2591,9 +2619,17 @@ spec:
                             description: Path prefix within bucket
                             nullable: true
                             type: string
+                          useWorkloadIdentity:
+                            default: false
+                            description: |-
+                              Use GKE Workload Identity (Application Default Credentials).
+
+                              When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses ADC: `GOOGLE_APPLICATION_CREDENTIALS`, or the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
+
+                              Mutually exclusive with `credentialsSecret`. Defaults to false so a backup that forgets its secret does not silently use the node identity.
+                            type: boolean
                         required:
                         - bucket
-                        - credentialsSecret
                         type: object
                       pvc:
                         description: PVC storage configuration

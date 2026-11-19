@@ -550,8 +550,23 @@ pub struct GcsStorageSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prefix: Option<String>,
 
-    /// Credentials secret reference
-    pub credentials_secret: GcsCredentialsRef,
+    /// Use GKE Workload Identity (Application Default Credentials).
+    ///
+    /// When true, the operator does not read a service-account JSON secret.
+    /// kafka-backup-core then uses ADC: `GOOGLE_APPLICATION_CREDENTIALS`, or
+    /// the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount
+    /// with `iam.gke.io/gcp-service-account` and grant that GCP service account
+    /// access to the bucket.
+    ///
+    /// Mutually exclusive with `credentialsSecret`. Defaults to false so a
+    /// backup that forgets its secret does not silently use the node identity.
+    #[serde(default)]
+    pub use_workload_identity: bool,
+
+    /// Credentials secret reference.
+    /// Required unless `useWorkloadIdentity` is true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credentials_secret: Option<GcsCredentialsRef>,
 }
 
 /// GCS credentials secret reference

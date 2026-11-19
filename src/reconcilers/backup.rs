@@ -196,9 +196,17 @@ fn validate_storage(storage: &crate::crd::StorageSpec) -> Result<()> {
             }
         }
         "gcs" => {
-            if storage.gcs.is_none() {
+            let gcs = storage.gcs.as_ref().ok_or_else(|| {
+                Error::validation("GCS storage selected but gcs configuration is missing")
+            })?;
+            if gcs.use_workload_identity && gcs.credentials_secret.is_some() {
                 return Err(Error::validation(
-                    "GCS storage selected but gcs configuration is missing",
+                    "GCS useWorkloadIdentity and credentialsSecret are mutually exclusive",
+                ));
+            }
+            if !gcs.use_workload_identity && gcs.credentials_secret.is_none() {
+                return Err(Error::validation(
+                    "GCS credentialsSecret is required unless useWorkloadIdentity is true",
                 ));
             }
         }
@@ -1127,5 +1135,59 @@ mod backup_id_tests {
             "orders-hourly",
             "orders-hourly"
         ));
+    }
+}
+
+#[cfg(test)]
+mod gcs_auth_tests {
+    use super::validate_storage;
+    use crate::crd::StorageSpec;
+    use serde_json::json;
+
+    fn storage(gcs: serde_json::Value) -> StorageSpec {
+        serde_json::from_value(json!({
+            "storageType": "gcs",
+            "gcs": gcs,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn workload_identity_does_not_require_a_secret() {
+        let storage = storage(json!({
+            "bucket": "backups",
+            "useWorkloadIdentity": true,
+        }));
+        assert!(validate_storage(&storage).is_ok());
+    }
+
+    #[test]
+    fn secret_without_workload_identity_stays_valid() {
+        let storage = storage(json!({
+            "bucket": "backups",
+            "credentialsSecret": {"name": "gcp-key"},
+        }));
+        assert!(validate_storage(&storage).is_ok());
+    }
+
+    #[test]
+    fn missing_secret_and_workload_identity_is_rejected() {
+        let storage = storage(json!({"bucket": "backups"}));
+        let err = validate_storage(&storage).unwrap_err().to_string();
+        assert!(err.contains("credentialsSecret"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn secret_and_workload_identity_together_are_rejected() {
+        let storage = storage(json!({
+            "bucket": "backups",
+            "useWorkloadIdentity": true,
+            "credentialsSecret": {"name": "gcp-key"},
+        }));
+        let err = validate_storage(&storage).unwrap_err().to_string();
+        assert!(
+            err.contains("mutually exclusive"),
+            "unexpected error: {err}"
+        );
     }
 }
