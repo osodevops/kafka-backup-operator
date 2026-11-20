@@ -36,7 +36,10 @@ fn scheduled(name: &str, phase: &str, last_start: Option<DateTime<Utc>>) -> Kafk
     let mut validation = KafkaBackupValidation::new(name, serde_json::from_value(spec).unwrap());
     validation.metadata.namespace = Some("kbo".to_string());
     validation.metadata.generation = Some(1);
-    validation.metadata.creation_timestamp = Some(Time(at(7, 20, 45, 0)));
+    validation.metadata.creation_timestamp = Some(Time(
+        k8s_openapi::jiff::Timestamp::from_millisecond(at(7, 20, 45, 0).timestamp_millis())
+            .unwrap(),
+    ));
     validation.status = Some(
         serde_json::from_value(json!({
             "phase": phase,
