@@ -6,6 +6,18 @@
 
 - `storage.gcs.useWorkloadIdentity` authenticates to GCS with Application Default Credentials (GKE Workload Identity) instead of a service-account JSON key ([#120](https://github.com/osodevops/kafka-backup-operator/issues/120)). `credentialsSecret` stays required when the flag is false, and setting both is rejected. The CRD schema changes: apply `deploy/crds/all.yaml` before upgrading. Helm does not upgrade CRDs.
 
+## 1.8.2 - 2026-11-20
+
+Uses `kafka-backup-core` `v0.30.1` (from `v0.28.1`). CRD schemas are unchanged.
+
+### Fixed
+
+- A restore that creates its topics could fail with `Broker returned error code 3: ListOffsets error for <topic>:<partition>`, leaving those topics unrestored. Clusters such as Confluent Cloud list a new topic's partitions a few seconds before every partition leader serves them. The restore now waits for each new partition ([kafka-backup#268](https://github.com/osodevops/kafka-backup/pull/268)).
+
+### Not included
+
+- Core 0.29.0 and 0.30.0 add OAuth (SASL/OAUTHBEARER) and Schema Registry and Apicurio Registry backup and restore. The operator embeds that code but its CRDs do not expose it yet; `KafkaBackup` and `KafkaRestore` behave as before. Use the `kafka-backup` CLI 0.30.1 for those features.
+
 ## 1.8.1 - 2026-11-17
 
 ### Fixed
