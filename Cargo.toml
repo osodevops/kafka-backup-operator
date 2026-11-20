@@ -12,57 +12,62 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 # Core backup library
-kafka-backup-core = "0.28.1"
+kafka-backup-core = "0.30.0"
 
 # Kubernetes
-kube = { version = "0.95", features = ["runtime", "derive", "client"] }
-kube-runtime = "0.95"
-k8s-openapi = { version = "0.23", features = ["v1_30"] }
+kube = { version = "5.1.0", features = ["runtime", "derive", "client"] }
+kube-runtime = "5.1.0"
+k8s-openapi = { version = "0.29.0", features = ["v1_33"] }
 
 # Async runtime
-tokio = { version = "1.41", features = ["full", "signal"] }
-tokio-util = "0.7"
-futures = "0.3"
+tokio = { version = "1.54.1", features = ["full", "signal"] }
+tokio-util = "0.7.20"
+futures = "0.3.34"
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-serde_yaml = "0.9"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+serde_yaml = "0.9.34+deprecated"
 
 # Time
-chrono = { version = "0.4", features = ["serde"] }
-schemars = { version = "0.8", features = ["chrono"] }
-cron = "0.12"
+chrono = { version = "0.4.45", features = ["serde"] }
+schemars = { version = "1.2.3", features = ["chrono04"] }
+cron = "0.17.0"
 
 # Logging & Tracing
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-appender = "0.2"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+tracing-appender = "0.2.5"
 
 # Error handling
-anyhow = "1.0"
-thiserror = "1.0"
+anyhow = "1.0.104"
+thiserror = "2.0.21"
 
 # HTTP client (for validation webhooks/notifications)
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.13.5", default-features = false, features = [
+  "rustls",
+] }
 
 # TLS: pins the process-default crypto provider (see `install_crypto_provider`)
-rustls = { version = "0.23.46", default-features = false, features = ["ring", "std"] }
+rustls = { version = "0.23.46", default-features = false, features = [
+  "ring",
+  "std",
+] }
 
 # Metrics
-prometheus = "0.14"
-hyper = { version = "1.9", features = ["server", "http1"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
-http-body-util = "0.1"
+prometheus = "0.14.0"
+hyper = { version = "1.12.0", features = ["server", "http1"] }
+hyper-util = { version = "0.1.21", features = ["tokio"] }
+http-body-util = "0.1.5"
 
 # Schema generation (moved to Time section with chrono feature)
 
 # Lazy static for metrics
-lazy_static = "1.4"
-libc = "0.2"
+lazy_static = "1.5.1"
+libc = "0.2.191"
 
 # Private temporary file for the evidence signing key (core reads keys from a path)
-tempfile = "3.13"
+tempfile = "3.27.0"
 
 [[bin]]
 name = "kafka-backup-operator"
@@ -73,9 +78,9 @@ name = "crdgen"
 path = "src/bin/crdgen.rs"
 
 [dev-dependencies]
-tokio-test = "0.4"
-tower-test = "0.4"
-http = "1"
+tokio-test = "0.4.6"
+tower-test = "0.4.0"
+http = "1.5.0"
 
 [profile.release]
 lto = true
