@@ -7,7 +7,7 @@
 
 A Kubernetes operator for automated Kafka backup and disaster recovery. Built with Rust using [kube-rs](https://kube.rs/) for high performance and reliability.
 
-**Latest release: v1.8.1** (embeds `kafka-backup-core` v0.28.1). See [Upgrade Notes](#upgrade-notes).
+**Latest release: v1.8.2** (embeds `kafka-backup-core` v0.30.1). See [Upgrade Notes](#upgrade-notes).
 
 ## Sponsorship
 
@@ -92,6 +92,16 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 | `KafkaBackupValidation` | `kbv` | Validate backups and produce evidence reports |
 
 ## Upgrade Notes
+
+### 1.8.2
+
+Uses `kafka-backup-core` `v0.30.1` (from `v0.28.1`). A `KafkaRestore` that
+creates its topics no longer fails with `ListOffsets error ... code 3` on
+clusters that list a new topic before every partition is served, such as
+Confluent Cloud. CRD schemas are unchanged and existing archives remain
+readable. Core 0.29 and 0.30 add OAuth (SASL/OAUTHBEARER) and Schema Registry
+and Apicurio Registry backup and restore; the operator's CRDs do not expose
+them yet, so use the `kafka-backup` CLI for those.
 
 ### 1.8.1
 
