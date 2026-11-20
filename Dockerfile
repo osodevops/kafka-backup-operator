@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.96-slim-bookworm AS builder
+FROM rust:1.100-slim-trixie AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -31,7 +31,7 @@ RUN touch src/main.rs
 RUN cargo build --release --bin kafka-backup-operator
 
 # Runtime stage
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
