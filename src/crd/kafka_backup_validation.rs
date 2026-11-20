@@ -102,7 +102,7 @@ pub struct MessageCountCheckSpec {
     #[serde(default = "default_true")]
     pub enabled: bool,
 
-    /// Acceptable difference threshold (number of records)
+    /// Acceptable absolute count difference per partition (number of records). Any scan error still fails.
     #[serde(default)]
     pub fail_threshold: Option<u64>,
 
@@ -388,7 +388,20 @@ pub struct CheckResultStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 
+    /// Structured core diagnostics, including MessageCountCheck topic_counts and partition scan bounds.
+    /// Unknown nested fields are preserved so evidence and status expose the same diagnostic data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "check_result_data_schema")]
+    pub data: Option<serde_json::Value>,
+
     /// Duration in milliseconds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
+}
+
+fn check_result_data_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    serde_json::from_value(serde_json::json!({
+        "type": "object", "x-kubernetes-preserve-unknown-fields": true,
+    }))
+    .expect("static diagnostic schema")
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.8.4 - 2026-11-20
+
+### Fixed
+
+- Embed core 0.30.2 and retain per-topic/partition expected, observed, signed delta, percentage, outcomes, scan bounds and errors in validation status and JSON/PDF evidence (#117). Include readable topic rows in `kubectl describe`; mark incomplete scans as unknown instead of implying zero.
+- Add the structured status schema to both CRD bundles so Kubernetes preserves diagnostic rows. Apply CRDs before upgrading and rerun validation to collect new reports.
+- Document archive versus visible target semantics and why offset-range checks can pass while record counts differ. The customer's reported shortfall still requires partition evidence; the change does not assert that it has been explained.
+
 ## 1.8.2 - 2026-11-20
 
 Uses `kafka-backup-core` `v0.30.1` (from `v0.28.1`). CRD schemas are unchanged.
