@@ -7,7 +7,7 @@
 
 A Kubernetes operator for automated Kafka backup and disaster recovery. Built with Rust using [kube-rs](https://kube.rs/) for high performance and reliability.
 
-**Latest release: v1.8.2** (embeds `kafka-backup-core` v0.30.1). See [Upgrade Notes](#upgrade-notes).
+**Latest release: v1.9.0** (embeds `kafka-backup-core` v0.30.1). See [Upgrade Notes](#upgrade-notes).
 
 ## Sponsorship
 
@@ -92,6 +92,10 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 | `KafkaBackupValidation` | `kbv` | Validate backups and produce evidence reports |
 
 ## Upgrade Notes
+
+### 1.9.0
+
+GCS storage can opt in to Application Default Credentials with `useWorkloadIdentity: true`. The API and operator reject missing or conflicting authentication choices. Apply the updated CRDs before upgrading the operator; Helm does not upgrade installed CRDs. Existing Secret-based configurations keep using their JSON keys. See [GKE setup and migration](docs/gcs-workload-identity.md).
 
 ### 1.8.2
 
