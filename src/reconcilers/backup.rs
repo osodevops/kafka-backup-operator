@@ -199,16 +199,7 @@ fn validate_storage(storage: &crate::crd::StorageSpec) -> Result<()> {
             let gcs = storage.gcs.as_ref().ok_or_else(|| {
                 Error::validation("GCS storage selected but gcs configuration is missing")
             })?;
-            if gcs.use_workload_identity && gcs.credentials_secret.is_some() {
-                return Err(Error::validation(
-                    "GCS useWorkloadIdentity and credentialsSecret are mutually exclusive",
-                ));
-            }
-            if !gcs.use_workload_identity && gcs.credentials_secret.is_none() {
-                return Err(Error::validation(
-                    "GCS credentialsSecret is required unless useWorkloadIdentity is true",
-                ));
-            }
+            gcs.validate_auth()?;
         }
         other => {
             return Err(Error::validation(format!(

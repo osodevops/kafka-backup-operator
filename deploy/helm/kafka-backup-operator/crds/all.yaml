@@ -480,13 +480,16 @@ spec:
                         description: |-
                           Use GKE Workload Identity (Application Default Credentials).
 
-                          When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses ADC: `GOOGLE_APPLICATION_CREDENTIALS`, or the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
+                          When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses its default credential discovery, including the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
 
                           Mutually exclusive with `credentialsSecret`. Defaults to false so a backup that forgets its secret does not silently use the node identity.
                         type: boolean
                     required:
                     - bucket
                     type: object
+                    x-kubernetes-validations:
+                    - message: 'GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both'
+                      rule: (has(self.useWorkloadIdentity) && self.useWorkloadIdentity) != has(self.credentialsSecret)
                   pvc:
                     description: PVC storage configuration
                     nullable: true
@@ -909,13 +912,16 @@ spec:
                             description: |-
                               Use GKE Workload Identity (Application Default Credentials).
 
-                              When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses ADC: `GOOGLE_APPLICATION_CREDENTIALS`, or the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
+                              When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses its default credential discovery, including the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
 
                               Mutually exclusive with `credentialsSecret`. Defaults to false so a backup that forgets its secret does not silently use the node identity.
                             type: boolean
                         required:
                         - bucket
                         type: object
+                        x-kubernetes-validations:
+                        - message: 'GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both'
+                          rule: (has(self.useWorkloadIdentity) && self.useWorkloadIdentity) != has(self.credentialsSecret)
                       pvc:
                         description: PVC storage configuration
                         nullable: true
@@ -2293,13 +2299,16 @@ spec:
                             description: |-
                               Use GKE Workload Identity (Application Default Credentials).
 
-                              When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses ADC: `GOOGLE_APPLICATION_CREDENTIALS`, or the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
+                              When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses its default credential discovery, including the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
 
                               Mutually exclusive with `credentialsSecret`. Defaults to false so a backup that forgets its secret does not silently use the node identity.
                             type: boolean
                         required:
                         - bucket
                         type: object
+                        x-kubernetes-validations:
+                        - message: 'GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both'
+                          rule: (has(self.useWorkloadIdentity) && self.useWorkloadIdentity) != has(self.credentialsSecret)
                       pvc:
                         description: PVC storage configuration
                         nullable: true
@@ -2624,13 +2633,16 @@ spec:
                             description: |-
                               Use GKE Workload Identity (Application Default Credentials).
 
-                              When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses ADC: `GOOGLE_APPLICATION_CREDENTIALS`, or the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
+                              When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses its default credential discovery, including the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
 
                               Mutually exclusive with `credentialsSecret`. Defaults to false so a backup that forgets its secret does not silently use the node identity.
                             type: boolean
                         required:
                         - bucket
                         type: object
+                        x-kubernetes-validations:
+                        - message: 'GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both'
+                          rule: (has(self.useWorkloadIdentity) && self.useWorkloadIdentity) != has(self.credentialsSecret)
                       pvc:
                         description: PVC storage configuration
                         nullable: true

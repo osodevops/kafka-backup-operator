@@ -6,6 +6,10 @@
 
 - `storage.gcs.useWorkloadIdentity` authenticates to GCS with Application Default Credentials (GKE Workload Identity) instead of a service-account JSON key ([#120](https://github.com/osodevops/kafka-backup-operator/issues/120)). `credentialsSecret` stays required when the flag is false, and setting both is rejected. The CRD schema changes: apply `deploy/crds/all.yaml` before upgrading. Helm does not upgrade CRDs.
 
+### Fixed
+
+- Enforce the GCS authentication choice at admission and runtime for every shared storage destination. Pass Secret JSON to core through a private temporary file instead of treating its content as a filename; retain the file across configuration clones and clean it up on drop.
+
 ## 1.8.2 - 2026-11-20
 
 Uses `kafka-backup-core` `v0.30.1` (from `v0.28.1`). CRD schemas are unchanged.

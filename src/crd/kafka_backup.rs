@@ -329,7 +329,8 @@ pub struct StorageSpec {
     pub azure: Option<AzureStorageSpec>,
 
     /// GCS storage configuration
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "gcs_storage_schema")]
     pub gcs: Option<GcsStorageSpec>,
 }
 
@@ -553,7 +554,7 @@ pub struct GcsStorageSpec {
     /// Use GKE Workload Identity (Application Default Credentials).
     ///
     /// When true, the operator does not read a service-account JSON secret.
-    /// kafka-backup-core then uses ADC: `GOOGLE_APPLICATION_CREDENTIALS`, or
+    /// kafka-backup-core then uses its default credential discovery, including
     /// the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount
     /// with `iam.gke.io/gcp-service-account` and grant that GCP service account
     /// access to the bucket.
@@ -567,6 +568,37 @@ pub struct GcsStorageSpec {
     /// Required unless `useWorkloadIdentity` is true.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credentials_secret: Option<GcsCredentialsRef>,
+}
+
+impl GcsStorageSpec {
+    /// Require an explicit, unambiguous authentication choice on every path.
+    pub fn validate_auth(&self) -> crate::error::Result<()> {
+        match (
+            self.use_workload_identity,
+            self.credentials_secret.is_some(),
+        ) {
+            (true, true) => Err(crate::error::Error::validation(
+                "GCS useWorkloadIdentity and credentialsSecret are mutually exclusive",
+            )),
+            (false, false) => Err(crate::error::Error::validation(
+                "GCS credentialsSecret is required unless useWorkloadIdentity is true",
+            )),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// Apply admission validation wherever the shared storage spec is embedded.
+fn gcs_storage_schema(generator: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    let mut schema = <Option<GcsStorageSpec>>::json_schema(generator).into_object();
+    schema.extensions.insert(
+        "x-kubernetes-validations".to_string(),
+        serde_json::json!([{
+            "rule": "(has(self.useWorkloadIdentity) && self.useWorkloadIdentity) != has(self.credentialsSecret)",
+            "message": "GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both"
+        }]),
+    );
+    schema.into()
 }
 
 /// GCS credentials secret reference

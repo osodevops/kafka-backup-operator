@@ -181,7 +181,9 @@ async fn storages() -> Vec<(&'static str, ResolvedStorage)> {
             ResolvedStorage::Gcs(GcsStorageConfig {
                 bucket: "backups".to_string(),
                 prefix: Some("prod".to_string()),
-                service_account_json: Some("/tmp/sa.json".to_string()),
+                service_account_file: Some(std::sync::Arc::new(
+                    tempfile::NamedTempFile::new().unwrap(),
+                )),
             }),
         ),
     ]
