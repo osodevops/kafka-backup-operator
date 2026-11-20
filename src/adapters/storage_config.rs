@@ -2,6 +2,8 @@
 //!
 //! Converts CRD StorageSpec to kafka-backup-core storage configuration.
 
+use std::{io::Write, sync::Arc};
+
 use kube::Client;
 
 use crate::crd::{AzureStorageSpec, GcsStorageSpec, PvcStorageSpec, S3StorageSpec, StorageSpec};
@@ -76,12 +78,17 @@ pub struct AzureStorageConfig {
     pub endpoint: Option<String>,
 }
 
-/// GCS storage configuration with resolved credentials
+/// GCS storage configuration with resolved credentials.
+///
+/// `service_account_file` is `None` when the backup uses Workload Identity.
+/// Core then leaves `service_account_path` unset and uses Application Default Credentials.
 #[derive(Debug, Clone)]
 pub struct GcsStorageConfig {
     pub bucket: String,
     pub prefix: Option<String>,
-    pub service_account_json: String,
+    /// Core requires a file path. Keep the private file alive across clones
+    /// until the last resolved configuration is dropped.
+    pub service_account_file: Option<Arc<tempfile::NamedTempFile>>,
 }
 
 /// Build resolved storage configuration from CRD spec
@@ -273,19 +280,40 @@ async fn build_gcs_storage(
     let gcs =
         gcs.ok_or_else(|| Error::config("GCS configuration is required for gcs storage type"))?;
 
-    // Fetch credentials from Kubernetes secret
-    let service_account_json = get_gcs_credentials(
-        client,
-        namespace,
-        &gcs.credentials_secret.name,
-        &gcs.credentials_secret.service_account_json_key,
-    )
-    .await?;
+    gcs.validate_auth()?;
+
+    let service_account_file = if gcs.use_workload_identity {
+        tracing::info!(
+            bucket = %gcs.bucket,
+            "Using default GCS credential discovery (useWorkloadIdentity enabled)"
+        );
+        None
+    } else {
+        let creds = gcs.credentials_secret.as_ref().ok_or_else(|| {
+            Error::config("GCS credentialsSecret is required unless useWorkloadIdentity is true")
+        })?;
+        let json = get_gcs_credentials(
+            client,
+            namespace,
+            &creds.name,
+            &creds.service_account_json_key,
+        )
+        .await?;
+        let mut file = tempfile::Builder::new()
+            .prefix("gcs-service-account-")
+            .suffix(".json")
+            .tempfile()
+            .map_err(|e| Error::config(format!("Failed to create GCS credential file: {e}")))?;
+        file.write_all(json.as_bytes())
+            .and_then(|()| file.flush())
+            .map_err(|e| Error::config(format!("Failed to write GCS credential file: {e}")))?;
+        Some(Arc::new(file))
+    };
 
     Ok(ResolvedStorage::Gcs(GcsStorageConfig {
         bucket: gcs.bucket.clone(),
         prefix: gcs.prefix.clone(),
-        service_account_json,
+        service_account_file,
     }))
 }
 

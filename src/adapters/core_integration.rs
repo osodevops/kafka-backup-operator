@@ -310,7 +310,11 @@ pub fn to_core_storage_config(resolved: &ResolvedStorage) -> StorageBackendConfi
         }
         ResolvedStorage::Gcs(gcs) => StorageBackendConfig::Gcs {
             bucket: gcs.bucket.clone(),
-            service_account_path: Some(gcs.service_account_json.clone()),
+            // None selects Application Default Credentials (GKE Workload Identity).
+            service_account_path: gcs
+                .service_account_file
+                .as_ref()
+                .map(|file| file.path().to_string_lossy().into_owned()),
             prefix: gcs.prefix.clone(),
         },
     }

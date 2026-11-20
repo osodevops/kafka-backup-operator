@@ -7,7 +7,7 @@
 
 A Kubernetes operator for automated Kafka backup and disaster recovery. Built with Rust using [kube-rs](https://kube.rs/) for high performance and reliability.
 
-**Latest release: v1.8.2** (embeds `kafka-backup-core` v0.30.1). See [Upgrade Notes](#upgrade-notes).
+**Latest release: v1.9.0** (embeds `kafka-backup-core` v0.30.1). See [Upgrade Notes](#upgrade-notes).
 
 ## Sponsorship
 
@@ -92,6 +92,10 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 | `KafkaBackupValidation` | `kbv` | Validate backups and produce evidence reports |
 
 ## Upgrade Notes
+
+### 1.9.0
+
+GCS storage can opt in to Application Default Credentials with `useWorkloadIdentity: true`. The API and operator reject missing or conflicting authentication choices. Apply the updated CRDs before upgrading the operator; Helm does not upgrade installed CRDs. Existing Secret-based configurations keep using their JSON keys. See [GKE setup and migration](docs/gcs-workload-identity.md).
 
 ### 1.8.2
 
@@ -385,6 +389,39 @@ spec:
         secretAccessKeyKey: AWS_SECRET_ACCESS_KEY
   schedule: "0 0 */4 * * * *"
 ```
+
+### Backup to Google Cloud Storage (GKE Workload Identity)
+
+Leave `credentialsSecret` unset and set `useWorkloadIdentity: true`. The operator pod then uses [Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials): on GKE that is the GCP service account bound to the operator's Kubernetes service account. No JSON key is stored in the cluster.
+
+```yaml
+apiVersion: kafka.oso.sh/v1alpha1
+kind: KafkaBackup
+metadata:
+  name: gcs-backup
+spec:
+  kafkaCluster:
+    bootstrapServers:
+      - kafka:9092
+  topics:
+    - orders
+  storage:
+    storageType: gcs
+    gcs:
+      bucket: my-kafka-backups
+      prefix: production
+      useWorkloadIdentity: true
+  schedule: "0 0 2 * * *"
+  stopAtCurrentOffsets: true
+```
+
+Annotate the operator ServiceAccount (Helm: `serviceAccount.annotations`):
+
+```yaml
+iam.gke.io/gcp-service-account: kafka-backup@PROJECT_ID.iam.gserviceaccount.com
+```
+
+`credentialsSecret` remains required when `useWorkloadIdentity` is false. Setting both is rejected. See [docs/gcs-workload-identity.md](docs/gcs-workload-identity.md).
 
 ## Backup Retention
 
