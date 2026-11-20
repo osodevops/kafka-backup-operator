@@ -1701,7 +1701,8 @@ dependencies = [
 [[package]]
 name = "kafka-backup-core"
 version = "0.30.2"
-source = "git+https://github.com/osodevops/kafka-backup?rev=b3556a7#b3556a73347e70959b70cb2efefb929da431eab7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e1a833ab583fb8e783859be678299d52e5798d07b100a4d752352eba687f9ff"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1760,7 +1761,7 @@ dependencies = [
 
 [[package]]
 name = "kafka-backup-operator"
-version = "1.8.4"
+version = "1.9.1"
 dependencies = [
  "anyhow",
  "chrono",
