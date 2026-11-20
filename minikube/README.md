@@ -32,6 +32,7 @@ cd minikube
 ```
 
 This script will:
+
 1. Start Minikube (if not already running)
 2. Install Confluent for Kubernetes CRDs
 3. Deploy the Confluent Operator
@@ -82,7 +83,7 @@ minikube delete && minikube start --memory 8192 --cpus 4
 
 ## Directory Structure
 
-```
+```text
 minikube/
 ├── base/
 │   ├── cfk-operator/          # Confluent for Kubernetes operator
@@ -151,6 +152,7 @@ The test environment creates:
 ### Kafka Configuration
 
 The test environment uses a simplified single-node Kafka setup with:
+
 - No authentication (PLAINTEXT)
 - Single replica (for local testing)
 - Auto topic creation enabled
@@ -158,6 +160,7 @@ The test environment uses a simplified single-node Kafka setup with:
 ### KafkaBackup Configuration
 
 The `kafka-backup.yaml` creates a backup with:
+
 - **Storage**: PVC (`kafka-backup-storage`)
 - **Compression**: zstd (level 3)
 - **Checkpointing**: Enabled (30-second intervals)
@@ -291,12 +294,13 @@ This test validates the `caSecret` / `tlsSecret` split-secret feature with a rea
 ### What It Tests
 
 Strimzi generates TLS certificates in separate Kubernetes secrets:
+
 - **`my-cluster-cluster-ca-cert`** — the cluster CA certificate (`ca.crt`)
 - **`backup-user`** — per-user client cert and key (`user.crt`, `user.key`)
 
 The test deploys a `KafkaBackup` and `KafkaRestore` that reference these as separate secrets using the `caSecret` field, validating the full produce → backup → restore flow over mTLS.
 
-### Quick Start
+### Running the Test
 
 ```bash
 cd minikube

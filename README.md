@@ -77,7 +77,7 @@ kubectl apply -f backup.yaml
 The operator provides five CRDs for managing Kafka backup and restore operations:
 
 | CRD | Short Name | Description |
-|-----|------------|-------------|
+| ----- | ------------ | ------------- |
 | `KafkaBackup` | `kb` | Define backup schedules and configurations |
 | `KafkaRestore` | `kr` | Trigger restore operations from backups |
 | `KafkaOffsetReset` | `kor` | Reset consumer group offsets |
@@ -619,7 +619,6 @@ extraEnv:
     value: /etc/internal-certs/ca.crt
 ```
 
-
 ## High availability and upgrades
 
 The operator is a single writer: exactly one replica may run the controllers
@@ -699,7 +698,7 @@ one Service, one ServiceMonitor, one target.
 ### Operator metrics
 
 | Metric | Type | Description |
-|--------|------|-------------|
+| -------- | ------ | ------------- |
 | `kafka_backup_operator_build_info` | gauge | Always 1, labelled with the operator `version` |
 | `kafka_backup_operator_health` | gauge | Operator health (1 = healthy) |
 | `kafka_backup_operator_managed_resources` | gauge | Resources watched, by `kind` |
@@ -774,15 +773,15 @@ curl -s http://127.0.0.1:8080/metrics | grep -E '^kafka_backup_(operator_)?'
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Kubernetes Cluster                           │
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │              kafka-backup-operator                        │  │
-│  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────────┐ │  │
-│  │  │   Backup    │ │   Restore   │ │   Offset Reset/     │ │  │
-│  │  │ Controller  │ │ Controller  │ │   Rollback Ctrl     │ │  │
-│  │  └──────┬──────┘ └──────┬──────┘ └──────────┬──────────┘ │  │
+│  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────────┐  │  │
+│  │  │   Backup    │ │   Restore   │ │   Offset Reset/     │  │  │
+│  │  │ Controller  │ │ Controller  │ │   Rollback Ctrl     │  │  │
+│  │  └──────┬──────┘ └──────┬──────┘ └──────────┬──────────┘  │  │
 │  │         │               │                    │            │  │
 │  │         └───────────────┼────────────────────┘            │  │
 │  │                         │                                 │  │
@@ -792,8 +791,8 @@ curl -s http://127.0.0.1:8080/metrics | grep -E '^kafka_backup_(operator_)?'
 │  │              │     (Rust lib)      │                      │  │
 │  │              └─────────────────────┘                      │  │
 │  └───────────────────────────────────────────────────────────┘  │
-│                              │                                   │
-│                              ▼                                   │
+│                              │                                  │
+│                              ▼                                  │
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │                    Kafka Cluster                          │  │
 │  └───────────────────────────────────────────────────────────┘  │
@@ -802,10 +801,10 @@ curl -s http://127.0.0.1:8080/metrics | grep -E '^kafka_backup_(operator_)?'
                                ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Cloud Storage                            │
-│      ┌──────────┐    ┌──────────┐    ┌──────────┐              │
-│      │   S3     │    │  Azure   │    │   GCS    │              │
-│      │          │    │   Blob   │    │          │              │
-│      └──────────┘    └──────────┘    └──────────┘              │
+│      ┌──────────┐    ┌──────────┐    ┌──────────┐               │
+│      │   S3     │    │  Azure   │    │   GCS    │               │
+│      │          │    │   Blob   │    │          │               │
+│      └──────────┘    └──────────┘    └──────────┘               │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
