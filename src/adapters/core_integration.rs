@@ -59,6 +59,10 @@ pub fn to_core_backup_config(
         restore: None,
         offset_storage,
         metrics,
+        oauth: None,
+        apicurio_registry: None,
+        registry_restore: None,
+        schema_registry: None,
     };
 
     config.validate()?;
@@ -88,6 +92,10 @@ pub fn to_core_restore_config(
         restore: Some(restore_options),
         offset_storage: None,
         metrics: None,
+        oauth: None,
+        apicurio_registry: None,
+        registry_restore: None,
+        schema_registry: None,
     };
 
     config.validate()?;
@@ -211,6 +219,7 @@ pub fn to_core_security_config_with_tls(
         sasl_keytab_path: None,
         sasl_krb5_config_path: None,
         sasl_mechanism_plugin_factory: None,
+        oauth: None,
     }
 }
 
@@ -630,6 +639,7 @@ pub fn to_core_validation_config(
         notifications,
         pitr_timestamp: None,
         triggered_by: Some("kafka-backup-operator".to_string()),
+        oauth: None,
     })
 }
 

@@ -344,9 +344,11 @@ impl LeaderElector {
                 spec: Some(LeaseSpec {
                     holder_identity: Some(self.identity.clone()),
                     lease_duration_seconds: Some(self.lease_duration_secs()),
-                    acquire_time: Some(MicroTime(now)),
-                    renew_time: Some(MicroTime(now)),
+                    acquire_time: Some(micro_time(now)),
+                    renew_time: Some(micro_time(now)),
                     lease_transitions: Some(0),
+                    preferred_holder: None,
+                    strategy: None,
                 }),
             };
             return match self.api.create(&PostParams::default(), &lease).await {
@@ -380,12 +382,12 @@ impl LeaderElector {
 
         let (acquire_time, lease_transitions) = if held_by_me {
             (
-                current.acquire_time.clone().or(Some(MicroTime(now))),
+                current.acquire_time.clone().or(Some(micro_time(now))),
                 current.lease_transitions.or(Some(0)),
             )
         } else {
             (
-                Some(MicroTime(now)),
+                Some(micro_time(now)),
                 Some(current.lease_transitions.unwrap_or(0).saturating_add(1)),
             )
         };
@@ -393,8 +395,10 @@ impl LeaderElector {
             holder_identity: Some(self.identity.clone()),
             lease_duration_seconds: Some(self.lease_duration_secs()),
             acquire_time,
-            renew_time: Some(MicroTime(now)),
+            renew_time: Some(micro_time(now)),
             lease_transitions,
+            preferred_holder: None,
+            strategy: None,
         });
 
         match self
@@ -464,9 +468,11 @@ impl LeaderElector {
         let now = (self.now)();
         lease.spec = Some(LeaseSpec {
             holder_identity: Some(String::new()),
+            preferred_holder: None,
+            strategy: None,
             lease_duration_seconds: Some(1),
-            acquire_time: Some(MicroTime(now)),
-            renew_time: Some(MicroTime(now)),
+            acquire_time: Some(micro_time(now)),
+            renew_time: Some(micro_time(now)),
             lease_transitions: current.lease_transitions,
         });
         let updated = self
@@ -562,6 +568,13 @@ impl LeaderElector {
 
 fn to_delta(d: Duration) -> TimeDelta {
     TimeDelta::from_std(d).unwrap_or(TimeDelta::MAX)
+}
+
+fn micro_time(time: DateTime<Utc>) -> MicroTime {
+    MicroTime(
+        k8s_openapi::jiff::Timestamp::new(time.timestamp(), time.timestamp_subsec_nanos() as i32)
+            .expect("current time must be representable as a Kubernetes timestamp"),
+    )
 }
 
 #[cfg(test)]

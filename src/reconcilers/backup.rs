@@ -334,7 +334,11 @@ fn should_run_backup(backup: &KafkaBackup, schedule: &Schedule, now: DateTime<Ut
         .status
         .as_ref()
         .and_then(|s| s.last_schedule_time)
-        .or_else(|| backup.metadata.creation_timestamp.as_ref().map(|t| t.0))
+        .or_else(|| {
+            backup.metadata.creation_timestamp.as_ref().and_then(|t| {
+                DateTime::<Utc>::from_timestamp(t.0.as_second(), t.0.subsec_nanosecond() as u32)
+            })
+        })
         .unwrap_or(now);
 
     schedule
@@ -859,7 +863,13 @@ mod should_run_backup_tests {
         }))
         .unwrap();
         let mut b = KafkaBackup::new("test", spec);
-        b.metadata.creation_timestamp = Some(Time(creation));
+        b.metadata.creation_timestamp = Some(Time(
+            k8s_openapi::jiff::Timestamp::new(
+                creation.timestamp(),
+                creation.timestamp_subsec_nanos() as i32,
+            )
+            .unwrap(),
+        ));
         b.status = status;
         b
     }
