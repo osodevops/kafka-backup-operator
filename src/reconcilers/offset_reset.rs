@@ -715,6 +715,7 @@ fn build_core_security_config(
         sasl_keytab_path: None,
         sasl_krb5_config_path: None,
         sasl_mechanism_plugin_factory: None,
+        oauth: None,
     }
 }
 
