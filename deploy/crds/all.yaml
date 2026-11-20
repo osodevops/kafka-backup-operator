@@ -2457,7 +2457,7 @@ spec:
                         description: Enable this check
                         type: boolean
                       failThreshold:
-                        description: Acceptable difference threshold (number of records)
+                        description: Acceptable absolute count difference per partition (number of records). Any scan error still fails.
                         format: uint64
                         minimum: 0.0
                         nullable: true
@@ -2927,6 +2927,10 @@ spec:
                     checkName:
                       description: Check name
                       type: string
+                    data:
+                      description: Structured core diagnostics, including MessageCountCheck topic_counts and partition scan bounds. Unknown nested fields are preserved so evidence and status expose the same diagnostic data.
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
                     durationMs:
                       description: Duration in milliseconds
                       format: uint64

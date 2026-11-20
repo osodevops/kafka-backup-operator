@@ -7,7 +7,7 @@
 
 A Kubernetes operator for automated Kafka backup and disaster recovery. Built with Rust using [kube-rs](https://kube.rs/) for high performance and reliability.
 
-**Latest release: v1.9.0** (embeds `kafka-backup-core` v0.30.1). See [Upgrade Notes](#upgrade-notes).
+**Latest release: v1.9.1** (embeds `kafka-backup-core` v0.30.2). See [Upgrade Notes](#upgrade-notes).
 
 ## Sponsorship
 
@@ -92,6 +92,37 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 | `KafkaBackupValidation` | `kbv` | Validate backups and produce evidence reports |
 
 ## Upgrade Notes
+
+### 1.9.1
+
+Uses core `0.30.2` to expose per-topic and per-partition message count diagnostics
+in validation status, CLI output and JSON/PDF evidence (#117). **Apply the new
+CRDs before upgrading** (Helm does not upgrade existing CRDs), then rerun
+validation; older evidence reports are unchanged. Topic rows live under
+`status.checkResults[].data.topic_counts` and are also included in the check's
+readable message for `kubectl describe`.
+
+```bash
+kubectl get kbv <name> -o json | jq '.status.checkResults[] | select(.checkName == "MessageCountCheck") | .data.topic_counts'
+```
+
+Each row includes raw `manifest_count`, replay-selected `expected`, currently
+visible `observed`, signed `delta` (observed minus expected), `delta_percentage`,
+and `outcome`. A topic fails if any partition errors or exceeds `failThreshold`,
+even when opposite deltas cancel in its total. A failed scan has an unknown
+count (`null`), not zero; `counts_complete: false` marks partial aggregate totals.
+The partition rows retain errors, archive bounds, captured target start and
+exclusive end, the offset reached, and last reported high watermark/LSO. A
+percentage is undefined when expected is zero and the delta is nonzero.
+
+The observed count scans `read_committed` application records on the cluster
+configured in **the validation's** `kafkaCluster`. Pointing it at a live source
+compares the archive with its current contents: compaction, retention,
+transaction visibility or new writes may cause differences. Offset range parity
+does not imply record count parity. Each partition captures its own scan end;
+there is no atomic snapshot across topics. Use a quiet completed restore for
+parity checks. Diagnostics identify failures; they do not prove the cause of
+the reported shortfall or verify record content equality.
 
 ### 1.9.0
 
