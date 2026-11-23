@@ -373,18 +373,7 @@ pub async fn execute(
                 .with_label_values(&[namespace, &name])
                 .observe(elapsed.as_secs_f64());
 
-            let check_results: Vec<serde_json::Value> = result
-                .check_results
-                .iter()
-                .map(|cr| {
-                    json!({
-                        "checkName": cr.check_name,
-                        "outcome": cr.outcome,
-                        "message": cr.message,
-                        "durationMs": cr.duration_ms,
-                    })
-                })
-                .collect();
+            let check_results = &result.check_results;
 
             let mut message = format!("Validation completed: {}", result.overall_result);
             if !result.warnings.is_empty() {
@@ -475,18 +464,37 @@ struct ValidationInternalResult {
     checks_passed: u32,
     checks_failed: u32,
     checks_warned: u32,
-    check_results: Vec<CheckResult>,
+    check_results: Vec<crate::crd::CheckResultStatus>,
     /// Evidence written for this run, when `spec.evidence` is set
     evidence: Option<EvidenceOutcome>,
     /// Non-fatal findings (PDF generation, notification delivery)
     warnings: Vec<String>,
 }
 
-struct CheckResult {
-    check_name: String,
-    outcome: String,
-    message: Option<String>,
-    duration_ms: Option<u64>,
+/// Convert a shared core result to the persisted Kubernetes status.
+pub fn validation_check_status(
+    result: &kafka_backup_core::validation::ValidationResult,
+) -> crate::crd::CheckResultStatus {
+    let outcome = match result.outcome {
+        kafka_backup_core::validation::CheckOutcome::Passed => "Passed",
+        kafka_backup_core::validation::CheckOutcome::Failed => "Failed",
+        kafka_backup_core::validation::CheckOutcome::Warning => "Warning",
+        kafka_backup_core::validation::CheckOutcome::Skipped => "Skipped",
+    };
+    crate::crd::CheckResultStatus {
+        check_name: result.check_name.clone(),
+        outcome: outcome.to_string(),
+        message: Some({
+            let mut message = result.detail.clone();
+            for line in kafka_backup_core::validation::message_count::diagnostic_lines(result) {
+                message.push('\n');
+                message.push_str(&line);
+            }
+            message
+        }),
+        data: (result.check_name == "MessageCountCheck").then(|| result.data.clone()),
+        duration_ms: Some(result.duration_ms),
+    }
 }
 
 /// Execute the actual validation using kafka-backup-core library
@@ -581,23 +589,10 @@ async fn execute_validation_internal(
     }
     .to_string();
 
-    let check_results: Vec<CheckResult> = summary
+    let check_results = summary
         .results
         .iter()
-        .map(|r| {
-            let outcome = match r.outcome {
-                kafka_backup_core::validation::CheckOutcome::Passed => "Passed",
-                kafka_backup_core::validation::CheckOutcome::Failed => "Failed",
-                kafka_backup_core::validation::CheckOutcome::Warning => "Warning",
-                kafka_backup_core::validation::CheckOutcome::Skipped => "Skipped",
-            };
-            CheckResult {
-                check_name: r.check_name.clone(),
-                outcome: outcome.to_string(),
-                message: Some(r.detail.clone()),
-                duration_ms: Some(r.duration_ms),
-            }
-        })
+        .map(validation_check_status)
         .collect();
 
     // 8. Evidence report and notifications (issue #93)

@@ -3,10 +3,17 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.89%2B-orange.svg)](https://www.rust-lang.org/)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-1.26%2B-326CE5.svg)](https://kubernetes.io/)
+[![Sponsor](https://img.shields.io/badge/Sponsor-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/osodevops)
 
 A Kubernetes operator for automated Kafka backup and disaster recovery. Built with Rust using [kube-rs](https://kube.rs/) for high performance and reliability.
 
-**Latest release: v1.8.1** (embeds `kafka-backup-core` v0.28.1). See [Upgrade Notes](#upgrade-notes).
+**Latest release: v1.9.1** (embeds `kafka-backup-core` v0.30.2). See [Upgrade Notes](#upgrade-notes).
+
+## Sponsorship
+
+kafka-backup-operator is free and open source. If your company relies on it, please consider [sponsoring it through GitHub Sponsors](https://github.com/sponsors/osodevops). Sponsorship pays for testing against new Kafka versions and distributions, release engineering, security fixes and documentation.
+
+Need support, an SLA or Enterprise features? See [Kafka Backup Enterprise](https://enterprise.kafkabackup.com).
 
 ## Features
 
@@ -85,6 +92,51 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 | `KafkaBackupValidation` | `kbv` | Validate backups and produce evidence reports |
 
 ## Upgrade Notes
+
+### 1.9.1
+
+Uses core `0.30.2` to expose per-topic and per-partition message count diagnostics
+in validation status, CLI output and JSON/PDF evidence (#117). **Apply the new
+CRDs before upgrading** (Helm does not upgrade existing CRDs), then rerun
+validation; older evidence reports are unchanged. Topic rows live under
+`status.checkResults[].data.topic_counts` and are also included in the check's
+readable message for `kubectl describe`.
+
+```bash
+kubectl get kbv <name> -o json | jq '.status.checkResults[] | select(.checkName == "MessageCountCheck") | .data.topic_counts'
+```
+
+Each row includes raw `manifest_count`, replay-selected `expected`, currently
+visible `observed`, signed `delta` (observed minus expected), `delta_percentage`,
+and `outcome`. A topic fails if any partition errors or exceeds `failThreshold`,
+even when opposite deltas cancel in its total. A failed scan has an unknown
+count (`null`), not zero; `counts_complete: false` marks partial aggregate totals.
+The partition rows retain errors, archive bounds, captured target start and
+exclusive end, the offset reached, and last reported high watermark/LSO. A
+percentage is undefined when expected is zero and the delta is nonzero.
+
+The observed count scans `read_committed` application records on the cluster
+configured in **the validation's** `kafkaCluster`. Pointing it at a live source
+compares the archive with its current contents: compaction, retention,
+transaction visibility or new writes may cause differences. Offset range parity
+does not imply record count parity. Each partition captures its own scan end;
+there is no atomic snapshot across topics. Use a quiet completed restore for
+parity checks. Diagnostics identify failures; they do not prove the cause of
+the reported shortfall or verify record content equality.
+
+### 1.9.0
+
+GCS storage can opt in to Application Default Credentials with `useWorkloadIdentity: true`. The API and operator reject missing or conflicting authentication choices. Apply the updated CRDs before upgrading the operator; Helm does not upgrade installed CRDs. Existing Secret-based configurations keep using their JSON keys. See [GKE setup and migration](docs/gcs-workload-identity.md).
+
+### 1.8.2
+
+Uses `kafka-backup-core` `v0.30.1` (from `v0.28.1`). A `KafkaRestore` that
+creates its topics no longer fails with `ListOffsets error ... code 3` on
+clusters that list a new topic before every partition is served, such as
+Confluent Cloud. CRD schemas are unchanged and existing archives remain
+readable. Core 0.29 and 0.30 add OAuth (SASL/OAUTHBEARER) and Schema Registry
+and Apicurio Registry backup and restore; the operator's CRDs do not expose
+them yet, so use the `kafka-backup` CLI for those.
 
 ### 1.8.1
 
@@ -368,6 +420,39 @@ spec:
         secretAccessKeyKey: AWS_SECRET_ACCESS_KEY
   schedule: "0 0 */4 * * * *"
 ```
+
+### Backup to Google Cloud Storage (GKE Workload Identity)
+
+Leave `credentialsSecret` unset and set `useWorkloadIdentity: true`. The operator pod then uses [Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials): on GKE that is the GCP service account bound to the operator's Kubernetes service account. No JSON key is stored in the cluster.
+
+```yaml
+apiVersion: kafka.oso.sh/v1alpha1
+kind: KafkaBackup
+metadata:
+  name: gcs-backup
+spec:
+  kafkaCluster:
+    bootstrapServers:
+      - kafka:9092
+  topics:
+    - orders
+  storage:
+    storageType: gcs
+    gcs:
+      bucket: my-kafka-backups
+      prefix: production
+      useWorkloadIdentity: true
+  schedule: "0 0 2 * * *"
+  stopAtCurrentOffsets: true
+```
+
+Annotate the operator ServiceAccount (Helm: `serviceAccount.annotations`):
+
+```yaml
+iam.gke.io/gcp-service-account: kafka-backup@PROJECT_ID.iam.gserviceaccount.com
+```
+
+`credentialsSecret` remains required when `useWorkloadIdentity` is false. Setting both is rejected. See [docs/gcs-workload-identity.md](docs/gcs-workload-identity.md).
 
 ## Backup Retention
 

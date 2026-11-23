@@ -458,7 +458,8 @@ spec:
                         description: GCS bucket name
                         type: string
                       credentialsSecret:
-                        description: Credentials secret reference
+                        description: Credentials secret reference. Required unless `useWorkloadIdentity` is true.
+                        nullable: true
                         properties:
                           name:
                             description: Secret name
@@ -474,10 +475,21 @@ spec:
                         description: Path prefix within bucket
                         nullable: true
                         type: string
+                      useWorkloadIdentity:
+                        default: false
+                        description: |-
+                          Use GKE Workload Identity (Application Default Credentials).
+
+                          When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses its default credential discovery, including the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
+
+                          Mutually exclusive with `credentialsSecret`. Defaults to false so a backup that forgets its secret does not silently use the node identity.
+                        type: boolean
                     required:
                     - bucket
-                    - credentialsSecret
                     type: object
+                    x-kubernetes-validations:
+                    - message: 'GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both'
+                      rule: (has(self.useWorkloadIdentity) && self.useWorkloadIdentity) != has(self.credentialsSecret)
                   pvc:
                     description: PVC storage configuration
                     nullable: true
@@ -878,7 +890,8 @@ spec:
                             description: GCS bucket name
                             type: string
                           credentialsSecret:
-                            description: Credentials secret reference
+                            description: Credentials secret reference. Required unless `useWorkloadIdentity` is true.
+                            nullable: true
                             properties:
                               name:
                                 description: Secret name
@@ -894,10 +907,21 @@ spec:
                             description: Path prefix within bucket
                             nullable: true
                             type: string
+                          useWorkloadIdentity:
+                            default: false
+                            description: |-
+                              Use GKE Workload Identity (Application Default Credentials).
+
+                              When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses its default credential discovery, including the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
+
+                              Mutually exclusive with `credentialsSecret`. Defaults to false so a backup that forgets its secret does not silently use the node identity.
+                            type: boolean
                         required:
                         - bucket
-                        - credentialsSecret
                         type: object
+                        x-kubernetes-validations:
+                        - message: 'GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both'
+                          rule: (has(self.useWorkloadIdentity) && self.useWorkloadIdentity) != has(self.credentialsSecret)
                       pvc:
                         description: PVC storage configuration
                         nullable: true
@@ -2253,7 +2277,8 @@ spec:
                             description: GCS bucket name
                             type: string
                           credentialsSecret:
-                            description: Credentials secret reference
+                            description: Credentials secret reference. Required unless `useWorkloadIdentity` is true.
+                            nullable: true
                             properties:
                               name:
                                 description: Secret name
@@ -2269,10 +2294,21 @@ spec:
                             description: Path prefix within bucket
                             nullable: true
                             type: string
+                          useWorkloadIdentity:
+                            default: false
+                            description: |-
+                              Use GKE Workload Identity (Application Default Credentials).
+
+                              When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses its default credential discovery, including the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
+
+                              Mutually exclusive with `credentialsSecret`. Defaults to false so a backup that forgets its secret does not silently use the node identity.
+                            type: boolean
                         required:
                         - bucket
-                        - credentialsSecret
                         type: object
+                        x-kubernetes-validations:
+                        - message: 'GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both'
+                          rule: (has(self.useWorkloadIdentity) && self.useWorkloadIdentity) != has(self.credentialsSecret)
                       pvc:
                         description: PVC storage configuration
                         nullable: true
@@ -2421,7 +2457,7 @@ spec:
                         description: Enable this check
                         type: boolean
                       failThreshold:
-                        description: Acceptable difference threshold (number of records)
+                        description: Acceptable absolute count difference per partition (number of records). Any scan error still fails.
                         format: uint64
                         minimum: 0.0
                         nullable: true
@@ -2575,7 +2611,8 @@ spec:
                             description: GCS bucket name
                             type: string
                           credentialsSecret:
-                            description: Credentials secret reference
+                            description: Credentials secret reference. Required unless `useWorkloadIdentity` is true.
+                            nullable: true
                             properties:
                               name:
                                 description: Secret name
@@ -2591,10 +2628,21 @@ spec:
                             description: Path prefix within bucket
                             nullable: true
                             type: string
+                          useWorkloadIdentity:
+                            default: false
+                            description: |-
+                              Use GKE Workload Identity (Application Default Credentials).
+
+                              When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses its default credential discovery, including the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
+
+                              Mutually exclusive with `credentialsSecret`. Defaults to false so a backup that forgets its secret does not silently use the node identity.
+                            type: boolean
                         required:
                         - bucket
-                        - credentialsSecret
                         type: object
+                        x-kubernetes-validations:
+                        - message: 'GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both'
+                          rule: (has(self.useWorkloadIdentity) && self.useWorkloadIdentity) != has(self.credentialsSecret)
                       pvc:
                         description: PVC storage configuration
                         nullable: true
@@ -2879,6 +2927,10 @@ spec:
                     checkName:
                       description: Check name
                       type: string
+                    data:
+                      description: Structured core diagnostics, including MessageCountCheck topic_counts and partition scan bounds. Unknown nested fields are preserved so evidence and status expose the same diagnostic data.
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
                     durationMs:
                       description: Duration in milliseconds
                       format: uint64
