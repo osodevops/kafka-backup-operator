@@ -17,10 +17,10 @@ use kube::CustomResourceExt;
 /// Generate all CRD YAML manifests
 pub fn generate_crds() -> Vec<String> {
     vec![
-        serde_yaml::to_string(&KafkaBackup::crd()).unwrap(),
-        serde_yaml::to_string(&KafkaRestore::crd()).unwrap(),
-        serde_yaml::to_string(&KafkaOffsetReset::crd()).unwrap(),
-        serde_yaml::to_string(&KafkaOffsetRollback::crd()).unwrap(),
-        serde_yaml::to_string(&KafkaBackupValidation::crd()).unwrap(),
+        serde_saphyr::to_string(&KafkaBackup::crd()).unwrap(),
+        serde_saphyr::to_string(&KafkaRestore::crd()).unwrap(),
+        serde_saphyr::to_string(&KafkaOffsetReset::crd()).unwrap(),
+        serde_saphyr::to_string(&KafkaOffsetRollback::crd()).unwrap(),
+        serde_saphyr::to_string(&KafkaBackupValidation::crd()).unwrap(),
     ]
 }

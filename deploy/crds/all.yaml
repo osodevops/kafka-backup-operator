@@ -288,8 +288,8 @@ spec:
                 nullable: true
                 properties:
                   bindAddress:
-                    default: 0.0.0.0
-                    description: 'Ignored: metrics are served on the operator''s listener'
+                    default: "0.0.0.0"
+                    description: "Ignored: metrics are served on the operator's listener"
                     type: string
                   enabled:
                     default: true
@@ -308,18 +308,18 @@ spec:
                     type: integer
                   path:
                     default: /metrics
-                    description: 'Ignored: metrics are served on the operator''s /metrics path'
+                    description: "Ignored: metrics are served on the operator's /metrics path"
                     type: string
                   port:
                     default: 9090
-                    description: 'Ignored: metrics are served on the operator''s port, not per backup'
+                    description: "Ignored: metrics are served on the operator's port, not per backup"
                     format: uint16
                     maximum: 65535.0
                     minimum: 0.0
                     type: integer
                   updateIntervalMs:
                     default: 500
-                    description: 'Ignored: core metrics are updated inline as the backup progresses'
+                    description: "Ignored: core metrics are updated inline as the backup progresses"
                     format: uint64
                     minimum: 0.0
                     type: integer
@@ -416,7 +416,7 @@ spec:
                 type: string
               stopAtCurrentOffsets:
                 default: false
-                description: 'Snapshot mode: stop once current high watermarks are backed up'
+                description: "Snapshot mode: stop once current high watermarks are backed up"
                 type: boolean
               storage:
                 description: Storage configuration
@@ -548,8 +548,10 @@ spec:
                     - bucket
                     type: object
                     x-kubernetes-validations:
-                    - message: 'GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both'
-                      rule: (has(self.useWorkloadIdentity) && self.useWorkloadIdentity) != has(self.credentialsSecret)
+                    - message: "GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both"
+                      rule: >-
+                        (has(self.useWorkloadIdentity) && self.useWorkloadIdentity) !=
+                        has(self.credentialsSecret)
                   pvc:
                     description: PVC storage configuration
                     nullable: true
@@ -872,7 +874,7 @@ spec:
                     nullable: true
                     type: string
                   storage:
-                    description: 'Alternative: Direct storage reference (for external backups)'
+                    description: "Alternative: Direct storage reference (for external backups)"
                     nullable: true
                     properties:
                       azure:
@@ -1002,8 +1004,10 @@ spec:
                         - bucket
                         type: object
                         x-kubernetes-validations:
-                        - message: 'GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both'
-                          rule: (has(self.useWorkloadIdentity) && self.useWorkloadIdentity) != has(self.credentialsSecret)
+                        - message: "GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both"
+                          rule: >-
+                            (has(self.useWorkloadIdentity) && self.useWorkloadIdentity) !=
+                            has(self.credentialsSecret)
                       pvc:
                         description: PVC storage configuration
                         nullable: true
@@ -1338,7 +1342,7 @@ spec:
                 nullable: true
                 properties:
                   endTime:
-                    description: 'Alternative: End time as ISO 8601 string'
+                    description: "Alternative: End time as ISO 8601 string"
                     format: date-time
                     nullable: true
                     type: string
@@ -1348,7 +1352,7 @@ spec:
                     nullable: true
                     type: integer
                   startTime:
-                    description: 'Alternative: Start time as ISO 8601 string'
+                    description: "Alternative: Start time as ISO 8601 string"
                     format: date-time
                     nullable: true
                     type: string
@@ -1437,7 +1441,9 @@ spec:
                 properties:
                   autoRollbackOnFailure:
                     default: false
-                    description: Auto-rollback on failure (not implemented yet; a failed restore is not rolled back)
+                    description: >-
+                      Auto-rollback on failure (not implemented yet; a failed restore is not rolled
+                      back)
                     type: boolean
                   snapshotBeforeRestore:
                     default: true
@@ -2474,8 +2480,10 @@ spec:
                         - bucket
                         type: object
                         x-kubernetes-validations:
-                        - message: 'GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both'
-                          rule: (has(self.useWorkloadIdentity) && self.useWorkloadIdentity) != has(self.credentialsSecret)
+                        - message: "GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both"
+                          rule: >-
+                            (has(self.useWorkloadIdentity) && self.useWorkloadIdentity) !=
+                            has(self.credentialsSecret)
                       pvc:
                         description: PVC storage configuration
                         nullable: true
@@ -2625,7 +2633,9 @@ spec:
                         description: Enable this check
                         type: boolean
                       failThreshold:
-                        description: Acceptable absolute count difference per partition (number of records). Any scan error still fails.
+                        description: >-
+                          Acceptable absolute count difference per partition (number of records). Any
+                          scan error still fails.
                         format: uint64
                         minimum: 0.0
                         nullable: true
@@ -2828,8 +2838,10 @@ spec:
                         - bucket
                         type: object
                         x-kubernetes-validations:
-                        - message: 'GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both'
-                          rule: (has(self.useWorkloadIdentity) && self.useWorkloadIdentity) != has(self.credentialsSecret)
+                        - message: "GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both"
+                          rule: >-
+                            (has(self.useWorkloadIdentity) && self.useWorkloadIdentity) !=
+                            has(self.credentialsSecret)
                       pvc:
                         description: PVC storage configuration
                         nullable: true
@@ -3110,7 +3122,9 @@ spec:
                 type: string
               suspend:
                 default: false
-                description: Pause initial, spec-change and scheduled validations. False alone does not enable recurrence.
+                description: >-
+                  Pause initial, spec-change and scheduled validations. False alone does not
+                  enable recurrence.
                 type: boolean
             required:
             - backupRef
