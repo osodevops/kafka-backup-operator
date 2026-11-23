@@ -6,7 +6,6 @@ metadata:
 spec:
   group: kafka.oso.sh
   names:
-    categories: []
     kind: KafkaBackup
     plural: kafkabackups
     shortNames:
@@ -44,11 +43,21 @@ spec:
                 properties:
                   enabled:
                     default: true
-                    description: Enable checkpointing. A non-continuous backup with checkpointing enabled writes every run into one backup set named after the resource (`status.backupId` equals the resource name) and resumes from the checkpoint the previous run stored, so scheduled runs are incremental. Set to false (or omit the `checkpoint` block) for standalone full backups, each in its own timestamped backup set.
+                    description: |-
+                      Enable checkpointing. A non-continuous backup with checkpointing
+                      enabled writes every run into one backup set named after the resource
+                      (`status.backupId` equals the resource name) and resumes from the
+                      checkpoint the previous run stored, so scheduled runs are incremental.
+                      Set to false (or omit the `checkpoint` block) for standalone full
+                      backups, each in its own timestamped backup set.
                     type: boolean
                   intervalSecs:
                     default: 30
-                    description: 'While a backup runs, its manifest and offset database are synced to storage every `2 x intervalSecs` seconds (offsets themselves are checkpointed at the end of every backup cycle). Without a checkpoint block, or with `enabled: false`, they sync every 30 seconds.'
+                    description: |-
+                      While a backup runs, its manifest and offset database are synced to
+                      storage every `2 x intervalSecs` seconds (offsets themselves are
+                      checkpointed at the end of every backup cycle). Without a checkpoint
+                      block, or with `enabled: false`, they sync every 30 seconds.
                     format: uint64
                     minimum: 0.0
                     type: integer
@@ -68,7 +77,9 @@ spec:
                     type: object
                 type: object
               circuitBreaker:
-                description: 'Kafka circuit breaker (advisory: logs state changes, never blocks requests). Core defaults apply when unset.'
+                description: |-
+                  Kafka circuit breaker (advisory: logs state changes, never blocks
+                  requests). Core defaults apply when unset.
                 nullable: true
                 properties:
                   enabled:
@@ -119,19 +130,28 @@ spec:
                 type: boolean
               emptyFetchRetrySecs:
                 default: 30
-                description: Per-partition no-progress retry budget in seconds (default 30, 0–3600). Zero fails immediately on the first empty Fetch below the captured end. Includes backoff and subsequent requests; resets when offsets advance. Expiry fails the backup while preserving its durable prefix.
+                description: |-
+                  Per-partition no-progress retry budget in seconds (default 30, 0–3600).
+                  Zero fails immediately on the first empty Fetch below the captured end.
+                  Includes backoff and subsequent requests; resets when offsets advance.
+                  Expiry fails the backup while preserving its durable prefix.
                 format: uint64
                 maximum: 3600.0
                 minimum: 0.0
                 type: integer
               excludeTopics:
-                description: 'Topics to leave out, names or globs (* and ?). Applied after `topics`, so `topics: ["*"]` with an exclude list also backs up every topic created later.'
+                description: |-
+                  Topics to leave out, names or globs (* and ?). Applied after `topics`, so
+                  `topics: ["*"]` with an exclude list also backs up every topic created later.
                 items:
                   type: string
                 type: array
               includeOffsetHeaders:
                 default: true
-                description: 'Add `x-original-offset` / `x-original-timestamp` headers to every archived record (Phase 1 of the three-phase restore). Default: true. Set to false for an archive whose records carry only their original headers.'
+                description: |-
+                  Add `x-original-offset` / `x-original-timestamp` headers to every archived record
+                  (Phase 1 of the three-phase restore). Default: true. Set to false for an archive
+                  whose records carry only their original headers.
                 type: boolean
               kafkaCluster:
                 description: Kafka cluster connection configuration
@@ -142,7 +162,9 @@ spec:
                       type: string
                     type: array
                   caSecret:
-                    description: Separate CA certificate secret (overrides caKey in tlsSecret when both are set). Useful for Strimzi where the cluster CA and client certificates are in separate secrets.
+                    description: |-
+                      Separate CA certificate secret (overrides caKey in tlsSecret when both are set).
+                      Useful for Strimzi where the cluster CA and client certificates are in separate secrets.
                     nullable: true
                     properties:
                       caKey:
@@ -167,7 +189,10 @@ spec:
                         type: integer
                       fetchMaxWaitMs:
                         default: 500
-                        description: Broker Fetch wait in milliseconds (default 500, 0–30000). Older Kafka remote reads may use this too; with KIP-1018 remote reads instead use broker remote.fetch.max.wait.ms. Does not extend the retry budget.
+                        description: |-
+                          Broker Fetch wait in milliseconds (default 500, 0–30000). Older Kafka
+                          remote reads may use this too; with KIP-1018 remote reads instead use
+                          broker remote.fetch.max.wait.ms. Does not extend the retry budget.
                         format: int32
                         maximum: 30000.0
                         minimum: 0.0
@@ -185,7 +210,14 @@ spec:
                         minimum: 0.0
                         type: integer
                       produceApiVersion:
-                        description: 'Produce API version to send, 7 or 8 (unset: 8). Only Produce requests follow it, so it matters for `KafkaRestore`; the other resources accept and ignore it. The client does not negotiate API versions yet (`ApiVersions`), so set it for a target broker whose maximum is lower: Redpanda advertises Produce 0..7 and drops the connection on 8, which surfaces as `early eof` on every topic. Versions 7 and 8 send the same request (8 only adds per-record error detail to the response). Versions below 7 are rejected: every batch the client produces is zstd-compressed, which brokers accept from Produce version 7.'
+                        description: |-
+                          Produce API version to send, 7 or 8 (unset: 8). Only Produce requests follow it, so it
+                          matters for `KafkaRestore`; the other resources accept and ignore it. The client does not
+                          negotiate API versions yet (`ApiVersions`), so set it for a target broker whose maximum is
+                          lower: Redpanda advertises Produce 0..7 and drops the connection on 8, which surfaces as
+                          `early eof` on every topic. Versions 7 and 8 send the same request (8 only adds per-record
+                          error detail to the response). Versions below 7 are rejected: every batch the client
+                          produces is zstd-compressed, which brokers accept from Produce version 7.
                         format: int16
                         maximum: 8.0
                         minimum: 7.0
@@ -261,11 +293,16 @@ spec:
                     type: string
                   enabled:
                     default: true
-                    description: 'Export kafka-backup-core runtime metrics for this backup (lag, throughput, storage IO, snapshot progress) on the operator''s metrics endpoint (default: true)'
+                    description: |-
+                      Export kafka-backup-core runtime metrics for this backup (lag,
+                      throughput, storage IO, snapshot progress) on the operator's metrics
+                      endpoint (default: true)
                     type: boolean
                   maxPartitionLabels:
                     default: 100
-                    description: 'Ignored: the cardinality cap is operator-wide, set with the METRICS_MAX_PARTITION_LABELS environment variable (default: 100)'
+                    description: |-
+                      Ignored: the cardinality cap is operator-wide, set with the
+                      METRICS_MAX_PARTITION_LABELS environment variable (default: 100)
                     format: uint
                     minimum: 0.0
                     type: integer
@@ -277,6 +314,7 @@ spec:
                     default: 9090
                     description: 'Ignored: metrics are served on the operator''s port, not per backup'
                     format: uint16
+                    maximum: 65535.0
                     minimum: 0.0
                     type: integer
                   updateIntervalMs:
@@ -288,7 +326,11 @@ spec:
                 type: object
               onMissingTopic:
                 default: fail
-                description: 'What to do when a literal (non-glob) entry in `topics` does not exist in the cluster: `fail` (default) fails the backup; `warn` skips it, records it in the manifest''s `missing_topics` and the `kafka_backup_missing_topics` gauge, and backs up the rest. Globs that match nothing are always skipped.'
+                description: |-
+                  What to do when a literal (non-glob) entry in `topics` does not exist in
+                  the cluster: `fail` (default) fails the backup; `warn` skips it, records
+                  it in the manifest's `missing_topics` and the `kafka_backup_missing_topics`
+                  gauge, and backs up the rest. Globs that match nothing are always skipped.
                 enum:
                 - fail
                 - warn
@@ -305,7 +347,10 @@ spec:
                 properties:
                   bytesPerSec:
                     default: 0
-                    description: Maximum bytes per second (each record's encoded size) for the whole run, shared by all partitions (0 = unlimited). Applied to backups since 1.7.0
+                    description: |-
+                      Maximum bytes per second (each record's encoded size) for the whole
+                      run, shared by all partitions (0 = unlimited). Applied to backups
+                      since 1.7.0
                     format: uint64
                     minimum: 0.0
                     type: integer
@@ -317,7 +362,9 @@ spec:
                     type: integer
                   recordsPerSec:
                     default: 0
-                    description: Maximum records per second for the whole run, shared by all partitions (0 = unlimited). Applied to backups since 1.7.0
+                    description: |-
+                      Maximum records per second for the whole run, shared by all
+                      partitions (0 = unlimited). Applied to backups since 1.7.0
                     format: uint64
                     minimum: 0.0
                     type: integer
@@ -385,7 +432,9 @@ spec:
                         description: Container name
                         type: string
                       credentialsSecret:
-                        description: Credentials secret reference for account key authentication Optional when using Workload Identity or Service Principal
+                        description: |-
+                          Credentials secret reference for account key authentication
+                          Optional when using Workload Identity or Service Principal
                         nullable: true
                         properties:
                           accountKeyKey:
@@ -444,7 +493,11 @@ spec:
                         type: object
                       useWorkloadIdentity:
                         default: false
-                        description: Use Azure Workload Identity for authentication When true, the operator uses the pod's federated identity token to authenticate with Azure Blob Storage (requires AKS with Workload Identity enabled) This is auto-detected if AZURE_FEDERATED_TOKEN_FILE environment variable is present
+                        description: |-
+                          Use Azure Workload Identity for authentication
+                          When true, the operator uses the pod's federated identity token
+                          to authenticate with Azure Blob Storage (requires AKS with Workload Identity enabled)
+                          This is auto-detected if AZURE_FEDERATED_TOKEN_FILE environment variable is present
                         type: boolean
                     required:
                     - accountName
@@ -458,7 +511,9 @@ spec:
                         description: GCS bucket name
                         type: string
                       credentialsSecret:
-                        description: Credentials secret reference. Required unless `useWorkloadIdentity` is true.
+                        description: |-
+                          Credentials secret reference.
+                          Required unless `useWorkloadIdentity` is true.
                         nullable: true
                         properties:
                           name:
@@ -480,9 +535,14 @@ spec:
                         description: |-
                           Use GKE Workload Identity (Application Default Credentials).
 
-                          When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses its default credential discovery, including the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
+                          When true, the operator does not read a service-account JSON secret.
+                          kafka-backup-core then uses its default credential discovery, including
+                          the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount
+                          with `iam.gke.io/gcp-service-account` and grant that GCP service account
+                          access to the bucket.
 
-                          Mutually exclusive with `credentialsSecret`. Defaults to false so a backup that forgets its secret does not silently use the node identity.
+                          Mutually exclusive with `credentialsSecret`. Defaults to false so a
+                          backup that forgets its secret does not silently use the node identity.
                         type: boolean
                     required:
                     - bucket
@@ -600,7 +660,9 @@ spec:
             nullable: true
             properties:
               backupId:
-                description: 'Backup set written by the last run: the resource name for incremental backups, `{name}-{YYYYMMDD-HHMMSS}` for full backups.'
+                description: |-
+                  Backup set written by the last run: the resource name for incremental
+                  backups, `{name}-{YYYYMMDD-HHMMSS}` for full backups.
                 nullable: true
                 type: string
               bytesProcessed:
@@ -658,7 +720,12 @@ spec:
                 nullable: true
                 type: string
               lastScheduleTime:
-                description: Authoritative timestamp of the most recent scheduled tick the operator has begun processing. Modelled on Kubernetes CronJob's `.status.lastScheduleTime`. Used as the monotonic anchor in `should_run_backup` so scheduling is immune to reflector-cache lag between a tick's `Running` patch and its `Completed` patch.
+                description: |-
+                  Authoritative timestamp of the most recent scheduled tick the operator
+                  has begun processing. Modelled on Kubernetes CronJob's
+                  `.status.lastScheduleTime`. Used as the monotonic anchor in
+                  `should_run_backup` so scheduling is immune to reflector-cache lag
+                  between a tick's `Running` patch and its `Completed` patch.
                 format: date-time
                 nullable: true
                 type: string
@@ -687,7 +754,10 @@ spec:
                 nullable: true
                 type: integer
               resumable:
-                description: Whether runs of this backup resume one backup set (checkpointing enabled on a non-continuous backup) rather than each writing a full backup.
+                description: |-
+                  Whether runs of this backup resume one backup set (checkpointing
+                  enabled on a non-continuous backup) rather than each writing a full
+                  backup.
                 nullable: true
                 type: boolean
               retentionDeletedBackups:
@@ -755,7 +825,6 @@ metadata:
 spec:
   group: kafka.oso.sh
   names:
-    categories: []
     kind: KafkaRestore
     plural: kafkarestores
     shortNames:
@@ -817,7 +886,9 @@ spec:
                             description: Container name
                             type: string
                           credentialsSecret:
-                            description: Credentials secret reference for account key authentication Optional when using Workload Identity or Service Principal
+                            description: |-
+                              Credentials secret reference for account key authentication
+                              Optional when using Workload Identity or Service Principal
                             nullable: true
                             properties:
                               accountKeyKey:
@@ -876,7 +947,11 @@ spec:
                             type: object
                           useWorkloadIdentity:
                             default: false
-                            description: Use Azure Workload Identity for authentication When true, the operator uses the pod's federated identity token to authenticate with Azure Blob Storage (requires AKS with Workload Identity enabled) This is auto-detected if AZURE_FEDERATED_TOKEN_FILE environment variable is present
+                            description: |-
+                              Use Azure Workload Identity for authentication
+                              When true, the operator uses the pod's federated identity token
+                              to authenticate with Azure Blob Storage (requires AKS with Workload Identity enabled)
+                              This is auto-detected if AZURE_FEDERATED_TOKEN_FILE environment variable is present
                             type: boolean
                         required:
                         - accountName
@@ -890,7 +965,9 @@ spec:
                             description: GCS bucket name
                             type: string
                           credentialsSecret:
-                            description: Credentials secret reference. Required unless `useWorkloadIdentity` is true.
+                            description: |-
+                              Credentials secret reference.
+                              Required unless `useWorkloadIdentity` is true.
                             nullable: true
                             properties:
                               name:
@@ -912,9 +989,14 @@ spec:
                             description: |-
                               Use GKE Workload Identity (Application Default Credentials).
 
-                              When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses its default credential discovery, including the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
+                              When true, the operator does not read a service-account JSON secret.
+                              kafka-backup-core then uses its default credential discovery, including
+                              the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount
+                              with `iam.gke.io/gcp-service-account` and grant that GCP service account
+                              access to the bucket.
 
-                              Mutually exclusive with `credentialsSecret`. Defaults to false so a backup that forgets its secret does not silently use the node identity.
+                              Mutually exclusive with `credentialsSecret`. Defaults to false so a
+                              backup that forgets its secret does not silently use the node identity.
                             type: boolean
                         required:
                         - bucket
@@ -1017,7 +1099,9 @@ spec:
                 - name
                 type: object
               circuitBreaker:
-                description: 'Kafka circuit breaker (advisory: logs state changes, never blocks requests). Core defaults apply when unset.'
+                description: |-
+                  Kafka circuit breaker (advisory: logs state changes, never blocks
+                  requests). Core defaults apply when unset.
                 nullable: true
                 properties:
                   enabled:
@@ -1051,11 +1135,18 @@ spec:
                 type: object
               createTopics:
                 default: false
-                description: Create missing topics during restore When enabled, topics that exist in the backup but not in the target cluster will be automatically created before restoring data.
+                description: |-
+                  Create missing topics during restore
+                  When enabled, topics that exist in the backup but not in the target cluster
+                  will be automatically created before restoring data.
                 type: boolean
               defaultReplicationFactor:
-                description: Default replication factor for auto-created topics If not specified, the broker's default replication factor is used.
+                description: |-
+                  Default replication factor for auto-created topics
+                  If not specified, the broker's default replication factor is used.
                 format: int16
+                maximum: 32767.0
+                minimum: -32768.0
                 nullable: true
                 type: integer
               dryRun:
@@ -1064,7 +1155,13 @@ spec:
                 type: boolean
               headerPreflight:
                 default: auto
-                description: Phase 1 header preflight (kafka-backup-core >= 0.20). Before a restore that recovers consumer offsets (`offsetReset` or `autoConsumerGroups`) touches the target, core scans the backup for the offset-tracking headers and fails without writing anything if coverage is incomplete. `auto` (default) scans only when offsets are recovered; `full` always scans; `skip` never scans and turns preflight errors into warnings.
+                description: |-
+                  Phase 1 header preflight (kafka-backup-core >= 0.20). Before a restore
+                  that recovers consumer offsets (`offsetReset` or `autoConsumerGroups`)
+                  touches the target, core scans the backup for the offset-tracking
+                  headers and fails without writing anything if coverage is incomplete.
+                  `auto` (default) scans only when offsets are recovered; `full` always
+                  scans; `skip` never scans and turns preflight errors into warnings.
                 enum:
                 - auto
                 - full
@@ -1072,7 +1169,10 @@ spec:
                 type: string
               includeOriginalOffsetHeader:
                 default: true
-                description: 'Add `x-original-offset`, `x-original-timestamp` and `x-source-partition` headers to every restored record (also implied by header-based consumer offset recovery). Default: true — the operator has always done this; note the kafka-backup CLI default is false.'
+                description: |-
+                  Add `x-original-offset`, `x-original-timestamp` and `x-source-partition` headers to
+                  every restored record (also implied by header-based consumer offset recovery).
+                  Default: true — the operator has always done this; note the kafka-backup CLI default is false.
                 type: boolean
               kafkaCluster:
                 description: Target Kafka cluster (can differ from backup source)
@@ -1083,7 +1183,9 @@ spec:
                       type: string
                     type: array
                   caSecret:
-                    description: Separate CA certificate secret (overrides caKey in tlsSecret when both are set). Useful for Strimzi where the cluster CA and client certificates are in separate secrets.
+                    description: |-
+                      Separate CA certificate secret (overrides caKey in tlsSecret when both are set).
+                      Useful for Strimzi where the cluster CA and client certificates are in separate secrets.
                     nullable: true
                     properties:
                       caKey:
@@ -1108,7 +1210,10 @@ spec:
                         type: integer
                       fetchMaxWaitMs:
                         default: 500
-                        description: Broker Fetch wait in milliseconds (default 500, 0–30000). Older Kafka remote reads may use this too; with KIP-1018 remote reads instead use broker remote.fetch.max.wait.ms. Does not extend the retry budget.
+                        description: |-
+                          Broker Fetch wait in milliseconds (default 500, 0–30000). Older Kafka
+                          remote reads may use this too; with KIP-1018 remote reads instead use
+                          broker remote.fetch.max.wait.ms. Does not extend the retry budget.
                         format: int32
                         maximum: 30000.0
                         minimum: 0.0
@@ -1126,7 +1231,14 @@ spec:
                         minimum: 0.0
                         type: integer
                       produceApiVersion:
-                        description: 'Produce API version to send, 7 or 8 (unset: 8). Only Produce requests follow it, so it matters for `KafkaRestore`; the other resources accept and ignore it. The client does not negotiate API versions yet (`ApiVersions`), so set it for a target broker whose maximum is lower: Redpanda advertises Produce 0..7 and drops the connection on 8, which surfaces as `early eof` on every topic. Versions 7 and 8 send the same request (8 only adds per-record error detail to the response). Versions below 7 are rejected: every batch the client produces is zstd-compressed, which brokers accept from Produce version 7.'
+                        description: |-
+                          Produce API version to send, 7 or 8 (unset: 8). Only Produce requests follow it, so it
+                          matters for `KafkaRestore`; the other resources accept and ignore it. The client does not
+                          negotiate API versions yet (`ApiVersions`), so set it for a target broker whose maximum is
+                          lower: Redpanda advertises Produce 0..7 and drops the connection on 8, which surfaces as
+                          `early eof` on every topic. Versions 7 and 8 send the same request (8 only adds per-record
+                          error detail to the response). Versions below 7 are rejected: every batch the client
+                          produces is zstd-compressed, which brokers accept from Produce version 7.
                         format: int16
                         maximum: 8.0
                         minimum: 7.0
@@ -1213,11 +1325,13 @@ spec:
                 - consumerGroups
                 type: object
               partitionMapping:
-                additionalProperties:
-                  format: int32
-                  type: integer
+                additionalProperties: false
                 default: {}
                 description: Partition remapping (source -> target)
+                patternProperties:
+                  ^-?\d+$:
+                    format: int32
+                    type: integer
                 type: object
               pitr:
                 description: Point-in-time recovery configuration
@@ -1248,6 +1362,8 @@ spec:
                 default: -1
                 description: Producer acknowledgement level (-1 = all, 1 = leader, 0 = none)
                 format: int16
+                maximum: 32767.0
+                minimum: -32768.0
                 type: integer
               produceBatchSize:
                 default: 1000
@@ -1262,7 +1378,9 @@ spec:
                 type: integer
               purgeTopics:
                 default: false
-                description: Purge target topics before restore using Kafka DeleteRecords. Required for restore-all or explicit same-topic restores.
+                description: |-
+                  Purge target topics before restore using Kafka DeleteRecords.
+                  Required for restore-all or explicit same-topic restores.
                 type: boolean
               rateLimiting:
                 description: Rate limiting configuration
@@ -1270,7 +1388,10 @@ spec:
                 properties:
                   bytesPerSec:
                     default: 0
-                    description: Maximum bytes per second (each record's encoded size) for the whole run, shared by all partitions (0 = unlimited). Applied to backups since 1.7.0
+                    description: |-
+                      Maximum bytes per second (each record's encoded size) for the whole
+                      run, shared by all partitions (0 = unlimited). Applied to backups
+                      since 1.7.0
                     format: uint64
                     minimum: 0.0
                     type: integer
@@ -1282,7 +1403,9 @@ spec:
                     type: integer
                   recordsPerSec:
                     default: 0
-                    description: Maximum records per second for the whole run, shared by all partitions (0 = unlimited). Applied to backups since 1.7.0
+                    description: |-
+                      Maximum records per second for the whole run, shared by all
+                      partitions (0 = unlimited). Applied to backups since 1.7.0
                     format: uint64
                     minimum: 0.0
                     type: integer
@@ -1306,7 +1429,10 @@ spec:
                 description: Per-topic repartitioning, keyed by target topic name
                 type: object
               rollback:
-                description: 'Rollback safety configuration. Not implemented yet: no offset snapshot is taken and no automatic rollback runs; the fields are accepted for forward compatibility.'
+                description: |-
+                  Rollback safety configuration. Not implemented yet: no offset snapshot
+                  is taken and no automatic rollback runs; the fields are accepted for
+                  forward compatibility.
                 nullable: true
                 properties:
                   autoRollbackOnFailure:
@@ -1340,7 +1466,11 @@ spec:
                 type: object
               stripOffsetHeaders:
                 default: false
-                description: 'Remove the headers kafka-backup added at backup time (`x-original-offset`, `x-original-timestamp`, `x-source-cluster`, `x-source-partition`) from archived records before producing, so restored records match the source header-for-header (kafka-backup-core >= 0.19.0). Default: false.'
+                description: |-
+                  Remove the headers kafka-backup added at backup time (`x-original-offset`,
+                  `x-original-timestamp`, `x-source-cluster`, `x-source-partition`) from archived records
+                  before producing, so restored records match the source header-for-header
+                  (kafka-backup-core >= 0.19.0). Default: false.
                 type: boolean
               topicMapping:
                 additionalProperties:
@@ -1501,7 +1631,6 @@ metadata:
 spec:
   group: kafka.oso.sh
   names:
-    categories: []
     kind: KafkaOffsetReset
     plural: kafkaoffsetresets
     shortNames:
@@ -1552,7 +1681,9 @@ spec:
                       type: string
                     type: array
                   caSecret:
-                    description: Separate CA certificate secret (overrides caKey in tlsSecret when both are set). Useful for Strimzi where the cluster CA and client certificates are in separate secrets.
+                    description: |-
+                      Separate CA certificate secret (overrides caKey in tlsSecret when both are set).
+                      Useful for Strimzi where the cluster CA and client certificates are in separate secrets.
                     nullable: true
                     properties:
                       caKey:
@@ -1577,7 +1708,10 @@ spec:
                         type: integer
                       fetchMaxWaitMs:
                         default: 500
-                        description: Broker Fetch wait in milliseconds (default 500, 0–30000). Older Kafka remote reads may use this too; with KIP-1018 remote reads instead use broker remote.fetch.max.wait.ms. Does not extend the retry budget.
+                        description: |-
+                          Broker Fetch wait in milliseconds (default 500, 0–30000). Older Kafka
+                          remote reads may use this too; with KIP-1018 remote reads instead use
+                          broker remote.fetch.max.wait.ms. Does not extend the retry budget.
                         format: int32
                         maximum: 30000.0
                         minimum: 0.0
@@ -1595,7 +1729,14 @@ spec:
                         minimum: 0.0
                         type: integer
                       produceApiVersion:
-                        description: 'Produce API version to send, 7 or 8 (unset: 8). Only Produce requests follow it, so it matters for `KafkaRestore`; the other resources accept and ignore it. The client does not negotiate API versions yet (`ApiVersions`), so set it for a target broker whose maximum is lower: Redpanda advertises Produce 0..7 and drops the connection on 8, which surfaces as `early eof` on every topic. Versions 7 and 8 send the same request (8 only adds per-record error detail to the response). Versions below 7 are rejected: every batch the client produces is zstd-compressed, which brokers accept from Produce version 7.'
+                        description: |-
+                          Produce API version to send, 7 or 8 (unset: 8). Only Produce requests follow it, so it
+                          matters for `KafkaRestore`; the other resources accept and ignore it. The client does not
+                          negotiate API versions yet (`ApiVersions`), so set it for a target broker whose maximum is
+                          lower: Redpanda advertises Produce 0..7 and drops the connection on 8, which surfaces as
+                          `early eof` on every topic. Versions 7 and 8 send the same request (8 only adds per-record
+                          error detail to the response). Versions below 7 are rejected: every batch the client
+                          produces is zstd-compressed, which brokers accept from Produce version 7.
                         format: int16
                         maximum: 8.0
                         minimum: 7.0
@@ -1705,7 +1846,10 @@ spec:
                 type: integer
               snapshotBeforeReset:
                 default: true
-                description: Snapshot the groups' offsets before the reset. The snapshot is taken and its ID recorded in `status.snapshotId`, but it is not saved anywhere yet, so `KafkaOffsetRollback` cannot restore from it.
+                description: |-
+                  Snapshot the groups' offsets before the reset. The snapshot is taken and
+                  its ID recorded in `status.snapshotId`, but it is not saved anywhere yet,
+                  so `KafkaOffsetRollback` cannot restore from it.
                 type: boolean
               topics:
                 default: []
@@ -1847,7 +1991,6 @@ metadata:
 spec:
   group: kafka.oso.sh
   names:
-    categories: []
     kind: KafkaOffsetRollback
     plural: kafkaoffsetrollbacks
     shortNames:
@@ -1892,7 +2035,9 @@ spec:
                       type: string
                     type: array
                   caSecret:
-                    description: Separate CA certificate secret (overrides caKey in tlsSecret when both are set). Useful for Strimzi where the cluster CA and client certificates are in separate secrets.
+                    description: |-
+                      Separate CA certificate secret (overrides caKey in tlsSecret when both are set).
+                      Useful for Strimzi where the cluster CA and client certificates are in separate secrets.
                     nullable: true
                     properties:
                       caKey:
@@ -1917,7 +2062,10 @@ spec:
                         type: integer
                       fetchMaxWaitMs:
                         default: 500
-                        description: Broker Fetch wait in milliseconds (default 500, 0–30000). Older Kafka remote reads may use this too; with KIP-1018 remote reads instead use broker remote.fetch.max.wait.ms. Does not extend the retry budget.
+                        description: |-
+                          Broker Fetch wait in milliseconds (default 500, 0–30000). Older Kafka
+                          remote reads may use this too; with KIP-1018 remote reads instead use
+                          broker remote.fetch.max.wait.ms. Does not extend the retry budget.
                         format: int32
                         maximum: 30000.0
                         minimum: 0.0
@@ -1935,7 +2083,14 @@ spec:
                         minimum: 0.0
                         type: integer
                       produceApiVersion:
-                        description: 'Produce API version to send, 7 or 8 (unset: 8). Only Produce requests follow it, so it matters for `KafkaRestore`; the other resources accept and ignore it. The client does not negotiate API versions yet (`ApiVersions`), so set it for a target broker whose maximum is lower: Redpanda advertises Produce 0..7 and drops the connection on 8, which surfaces as `early eof` on every topic. Versions 7 and 8 send the same request (8 only adds per-record error detail to the response). Versions below 7 are rejected: every batch the client produces is zstd-compressed, which brokers accept from Produce version 7.'
+                        description: |-
+                          Produce API version to send, 7 or 8 (unset: 8). Only Produce requests follow it, so it
+                          matters for `KafkaRestore`; the other resources accept and ignore it. The client does not
+                          negotiate API versions yet (`ApiVersions`), so set it for a target broker whose maximum is
+                          lower: Redpanda advertises Produce 0..7 and drops the connection on 8, which surfaces as
+                          `early eof` on every topic. Versions 7 and 8 send the same request (8 only adds per-record
+                          error detail to the response). Versions below 7 are rejected: every batch the client
+                          produces is zstd-compressed, which brokers accept from Produce version 7.
                         format: int16
                         maximum: 8.0
                         minimum: 7.0
@@ -2146,7 +2301,6 @@ metadata:
 spec:
   group: kafka.oso.sh
   names:
-    categories: []
     kind: KafkaBackupValidation
     plural: kafkabackupvalidations
     shortNames:
@@ -2204,7 +2358,9 @@ spec:
                             description: Container name
                             type: string
                           credentialsSecret:
-                            description: Credentials secret reference for account key authentication Optional when using Workload Identity or Service Principal
+                            description: |-
+                              Credentials secret reference for account key authentication
+                              Optional when using Workload Identity or Service Principal
                             nullable: true
                             properties:
                               accountKeyKey:
@@ -2263,7 +2419,11 @@ spec:
                             type: object
                           useWorkloadIdentity:
                             default: false
-                            description: Use Azure Workload Identity for authentication When true, the operator uses the pod's federated identity token to authenticate with Azure Blob Storage (requires AKS with Workload Identity enabled) This is auto-detected if AZURE_FEDERATED_TOKEN_FILE environment variable is present
+                            description: |-
+                              Use Azure Workload Identity for authentication
+                              When true, the operator uses the pod's federated identity token
+                              to authenticate with Azure Blob Storage (requires AKS with Workload Identity enabled)
+                              This is auto-detected if AZURE_FEDERATED_TOKEN_FILE environment variable is present
                             type: boolean
                         required:
                         - accountName
@@ -2277,7 +2437,9 @@ spec:
                             description: GCS bucket name
                             type: string
                           credentialsSecret:
-                            description: Credentials secret reference. Required unless `useWorkloadIdentity` is true.
+                            description: |-
+                              Credentials secret reference.
+                              Required unless `useWorkloadIdentity` is true.
                             nullable: true
                             properties:
                               name:
@@ -2299,9 +2461,14 @@ spec:
                             description: |-
                               Use GKE Workload Identity (Application Default Credentials).
 
-                              When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses its default credential discovery, including the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
+                              When true, the operator does not read a service-account JSON secret.
+                              kafka-backup-core then uses its default credential discovery, including
+                              the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount
+                              with `iam.gke.io/gcp-service-account` and grant that GCP service account
+                              access to the bucket.
 
-                              Mutually exclusive with `credentialsSecret`. Defaults to false so a backup that forgets its secret does not silently use the node identity.
+                              Mutually exclusive with `credentialsSecret`. Defaults to false so a
+                              backup that forgets its secret does not silently use the node identity.
                             type: boolean
                         required:
                         - bucket
@@ -2429,6 +2596,7 @@ spec:
                           default: 200
                           description: Expected HTTP status code
                           format: uint16
+                          maximum: 65535.0
                           minimum: 0.0
                           type: integer
                         name:
@@ -2485,7 +2653,9 @@ spec:
                   formats:
                     default:
                     - json
-                    description: 'Output formats: json, pdf (case-insensitive). Signing always stores the JSON report, since the signature covers its bytes'
+                    description: |-
+                      Output formats: json, pdf (case-insensitive). Signing always stores
+                      the JSON report, since the signature covers its bytes
                     items:
                       type: string
                     type: array
@@ -2504,7 +2674,9 @@ spec:
                         description: Enable ECDSA-P256-SHA256 signing
                         type: boolean
                       keySecret:
-                        description: Secret containing the ECDSA P-256 private key (PEM-encoded PKCS#8, `-----BEGIN PRIVATE KEY-----`)
+                        description: |-
+                          Secret containing the ECDSA P-256 private key (PEM-encoded PKCS#8,
+                          `-----BEGIN PRIVATE KEY-----`)
                         properties:
                           name:
                             description: Secret name
@@ -2524,7 +2696,9 @@ spec:
                     - keySecret
                     type: object
                   storage:
-                    description: Storage location for evidence reports (defaults to the backup's storage). Reports are written under `evidence-reports/` within it
+                    description: |-
+                      Storage location for evidence reports (defaults to the backup's
+                      storage). Reports are written under `evidence-reports/` within it
                     nullable: true
                     properties:
                       azure:
@@ -2538,7 +2712,9 @@ spec:
                             description: Container name
                             type: string
                           credentialsSecret:
-                            description: Credentials secret reference for account key authentication Optional when using Workload Identity or Service Principal
+                            description: |-
+                              Credentials secret reference for account key authentication
+                              Optional when using Workload Identity or Service Principal
                             nullable: true
                             properties:
                               accountKeyKey:
@@ -2597,7 +2773,11 @@ spec:
                             type: object
                           useWorkloadIdentity:
                             default: false
-                            description: Use Azure Workload Identity for authentication When true, the operator uses the pod's federated identity token to authenticate with Azure Blob Storage (requires AKS with Workload Identity enabled) This is auto-detected if AZURE_FEDERATED_TOKEN_FILE environment variable is present
+                            description: |-
+                              Use Azure Workload Identity for authentication
+                              When true, the operator uses the pod's federated identity token
+                              to authenticate with Azure Blob Storage (requires AKS with Workload Identity enabled)
+                              This is auto-detected if AZURE_FEDERATED_TOKEN_FILE environment variable is present
                             type: boolean
                         required:
                         - accountName
@@ -2611,7 +2791,9 @@ spec:
                             description: GCS bucket name
                             type: string
                           credentialsSecret:
-                            description: Credentials secret reference. Required unless `useWorkloadIdentity` is true.
+                            description: |-
+                              Credentials secret reference.
+                              Required unless `useWorkloadIdentity` is true.
                             nullable: true
                             properties:
                               name:
@@ -2633,9 +2815,14 @@ spec:
                             description: |-
                               Use GKE Workload Identity (Application Default Credentials).
 
-                              When true, the operator does not read a service-account JSON secret. kafka-backup-core then uses its default credential discovery, including the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount with `iam.gke.io/gcp-service-account` and grant that GCP service account access to the bucket.
+                              When true, the operator does not read a service-account JSON secret.
+                              kafka-backup-core then uses its default credential discovery, including
+                              the GCE/GKE metadata server. On GKE, annotate the operator ServiceAccount
+                              with `iam.gke.io/gcp-service-account` and grant that GCP service account
+                              access to the bucket.
 
-                              Mutually exclusive with `credentialsSecret`. Defaults to false so a backup that forgets its secret does not silently use the node identity.
+                              Mutually exclusive with `credentialsSecret`. Defaults to false so a
+                              backup that forgets its secret does not silently use the node identity.
                             type: boolean
                         required:
                         - bucket
@@ -2745,7 +2932,9 @@ spec:
                       type: string
                     type: array
                   caSecret:
-                    description: Separate CA certificate secret (overrides caKey in tlsSecret when both are set). Useful for Strimzi where the cluster CA and client certificates are in separate secrets.
+                    description: |-
+                      Separate CA certificate secret (overrides caKey in tlsSecret when both are set).
+                      Useful for Strimzi where the cluster CA and client certificates are in separate secrets.
                     nullable: true
                     properties:
                       caKey:
@@ -2770,7 +2959,10 @@ spec:
                         type: integer
                       fetchMaxWaitMs:
                         default: 500
-                        description: Broker Fetch wait in milliseconds (default 500, 0–30000). Older Kafka remote reads may use this too; with KIP-1018 remote reads instead use broker remote.fetch.max.wait.ms. Does not extend the retry budget.
+                        description: |-
+                          Broker Fetch wait in milliseconds (default 500, 0–30000). Older Kafka
+                          remote reads may use this too; with KIP-1018 remote reads instead use
+                          broker remote.fetch.max.wait.ms. Does not extend the retry budget.
                         format: int32
                         maximum: 30000.0
                         minimum: 0.0
@@ -2788,7 +2980,14 @@ spec:
                         minimum: 0.0
                         type: integer
                       produceApiVersion:
-                        description: 'Produce API version to send, 7 or 8 (unset: 8). Only Produce requests follow it, so it matters for `KafkaRestore`; the other resources accept and ignore it. The client does not negotiate API versions yet (`ApiVersions`), so set it for a target broker whose maximum is lower: Redpanda advertises Produce 0..7 and drops the connection on 8, which surfaces as `early eof` on every topic. Versions 7 and 8 send the same request (8 only adds per-record error detail to the response). Versions below 7 are rejected: every batch the client produces is zstd-compressed, which brokers accept from Produce version 7.'
+                        description: |-
+                          Produce API version to send, 7 or 8 (unset: 8). Only Produce requests follow it, so it
+                          matters for `KafkaRestore`; the other resources accept and ignore it. The client does not
+                          negotiate API versions yet (`ApiVersions`), so set it for a target broker whose maximum is
+                          lower: Redpanda advertises Produce 0..7 and drops the connection on 8, which surfaces as
+                          `early eof` on every topic. Versions 7 and 8 send the same request (8 only adds per-record
+                          error detail to the response). Versions below 7 are rejected: every batch the client
+                          produces is zstd-compressed, which brokers accept from Produce version 7.
                         format: int16
                         maximum: 8.0
                         minimum: 7.0
@@ -2904,7 +3103,9 @@ spec:
                     type: object
                 type: object
               schedule:
-                description: Cron schedule for recurring validation (six or seven fields, including seconds, UTC). If omitted, runs only on creation or spec changes. Does not inherit the backup schedule.
+                description: |-
+                  Cron schedule for recurring validation (six or seven fields, including seconds, UTC).
+                  If omitted, runs only on creation or spec changes. Does not inherit the backup schedule.
                 nullable: true
                 type: string
               suspend:
@@ -2928,7 +3129,9 @@ spec:
                       description: Check name
                       type: string
                     data:
-                      description: Structured core diagnostics, including MessageCountCheck topic_counts and partition scan bounds. Unknown nested fields are preserved so evidence and status expose the same diagnostic data.
+                      description: |-
+                        Structured core diagnostics, including MessageCountCheck topic_counts and partition scan bounds.
+                        Unknown nested fields are preserved so evidence and status expose the same diagnostic data.
                       type: object
                       x-kubernetes-preserve-unknown-fields: true
                     durationMs:
@@ -3018,11 +3221,17 @@ spec:
                 nullable: true
                 type: string
               evidenceReportId:
-                description: ID of the evidence report of the last completed validation; the directory and file stem of its artifacts in evidence storage
+                description: |-
+                  ID of the evidence report of the last completed validation; the
+                  directory and file stem of its artifacts in evidence storage
                 nullable: true
                 type: string
               evidenceReportPath:
-                description: Key of the JSON evidence report of the last completed validation. Evidence keys are relative to the evidence storage (`spec.evidence.storage`, or the backup's storage when unset) and its prefix, e.g. `evidence-reports/<id>/<yyyy>/<mm>/<id>.json`
+                description: |-
+                  Key of the JSON evidence report of the last completed validation.
+                  Evidence keys are relative to the evidence storage
+                  (`spec.evidence.storage`, or the backup's storage when unset) and its
+                  prefix, e.g. `evidence-reports/<id>/<yyyy>/<mm>/<id>.json`
                 nullable: true
                 type: string
               evidenceReportSha256:
@@ -3034,7 +3243,9 @@ spec:
                 nullable: true
                 type: boolean
               evidenceSignaturePath:
-                description: Key of the detached signature envelope of the last completed validation (when signing is enabled)
+                description: |-
+                  Key of the detached signature envelope of the last completed
+                  validation (when signing is enabled)
                 nullable: true
                 type: string
               lastValidationTime:
