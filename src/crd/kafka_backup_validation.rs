@@ -399,7 +399,7 @@ pub struct CheckResultStatus {
     pub duration_ms: Option<u64>,
 }
 
-fn check_result_data_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+fn check_result_data_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     serde_json::from_value(serde_json::json!({
         "type": "object", "x-kubernetes-preserve-unknown-fields": true,
     }))
