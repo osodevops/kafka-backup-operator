@@ -23,6 +23,7 @@ use serde_json::json;
 use std::str::FromStr;
 use tracing::{debug, error, info, warn};
 
+use super::status;
 use crate::adapters::{
     build_backup_config, default_tls_dir, to_core_backup_config, ResolvedBackupConfig,
     ResolvedStorage, TlsFileManager,
@@ -527,12 +528,7 @@ async fn execute_backup(backup: &KafkaBackup, client: &Client, namespace: &str) 
                     }]
                 }
             });
-            api.patch_status(
-                &name,
-                &PatchParams::apply("kafka-backup-operator"),
-                &Patch::Merge(failed_status),
-            )
-            .await?;
+            status::patch_status(&api, &name, failed_status).await?;
 
             // Retry after delay
             Ok(Action::requeue(Duration::from_secs(300)))
@@ -780,14 +776,7 @@ pub async fn update_status_failed(
         }
     });
 
-    api.patch_status(
-        &name,
-        &PatchParams::apply("kafka-backup-operator"),
-        &Patch::Merge(status),
-    )
-    .await?;
-
-    Ok(())
+    status::patch_status(&api, &name, status).await
 }
 
 /// Ensure storage directories exist before backup execution
