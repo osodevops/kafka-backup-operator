@@ -1329,13 +1329,11 @@ spec:
                 - consumerGroups
                 type: object
               partitionMapping:
-                additionalProperties: false
+                additionalProperties:
+                  format: int32
+                  type: integer
                 default: {}
                 description: Partition remapping (source -> target)
-                patternProperties:
-                  ^-?\d+$:
-                    format: int32
-                    type: integer
                 type: object
               pitr:
                 description: Point-in-time recovery configuration
