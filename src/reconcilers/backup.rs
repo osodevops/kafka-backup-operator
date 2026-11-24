@@ -21,7 +21,7 @@ use kube::{
 };
 use serde_json::json;
 use std::str::FromStr;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use super::status;
 use crate::adapters::{
@@ -508,8 +508,6 @@ async fn execute_backup(backup: &KafkaBackup, client: &Client, namespace: &str) 
             }
         }
         Err(e) => {
-            error!(name = %name, error = %e, "Backup failed");
-
             metrics::BACKUPS_TOTAL
                 .with_label_values(&["failure", namespace, &name])
                 .inc();

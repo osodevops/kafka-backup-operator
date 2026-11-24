@@ -15,7 +15,7 @@ use kube::{
     },
     Api, Client, ResourceExt,
 };
-use tracing::{error, info, instrument, warn};
+use tracing::{error, info, instrument};
 
 use crate::controllers::Context;
 use crate::crd::KafkaRestore;
@@ -122,7 +122,6 @@ async fn apply(restore: Arc<KafkaRestore>, ctx: Arc<Context>) -> Result<Action> 
 
     // Validate the spec
     if let Err(e) = restore_reconciler::validate(&restore) {
-        warn!(error = %e, "Validation failed");
         restore_reconciler::update_status_failed(&restore, &ctx.client, &namespace, &e.to_string())
             .await?;
         return Ok(Action::requeue(Duration::from_secs(300)));

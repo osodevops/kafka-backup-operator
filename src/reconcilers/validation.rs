@@ -20,7 +20,7 @@ use kube::{
     Api, Client, ResourceExt,
 };
 use serde_json::json;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use super::status;
 use crate::adapters::{
@@ -419,8 +419,6 @@ pub async fn execute(
             Ok(requeue_until_next_run(validation, Utc::now()))
         }
         Err(e) => {
-            error!(name = %name, error = %e, "Validation failed");
-
             metrics::VALIDATIONS_TOTAL
                 .with_label_values(&["error", namespace, &name])
                 .inc();

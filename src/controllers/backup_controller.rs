@@ -15,7 +15,7 @@ use kube::{
     },
     Api, Client, ResourceExt,
 };
-use tracing::{error, info, instrument, warn};
+use tracing::{error, info, instrument};
 
 use crate::controllers::Context;
 use crate::crd::KafkaBackup;
@@ -118,7 +118,6 @@ async fn apply(backup: Arc<KafkaBackup>, ctx: Arc<Context>) -> Result<Action> {
 
     // Validate the spec
     if let Err(e) = backup_reconciler::validate(&backup) {
-        warn!(error = %e, "Validation failed");
         backup_reconciler::update_status_failed(&backup, &ctx.client, &namespace, &e.to_string())
             .await?;
         return Ok(Action::requeue(Duration::from_secs(300)));

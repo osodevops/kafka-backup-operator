@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.9.3 - 2026-11-24
+
+### Changed
+
+- Every failure is logged once, in one form (#127). When a resource's status is
+  set to `Failed`, the operator writes a single `ERROR` record,
+  `Resource status set to Failed`, with `kind`, `namespace`, `name`, `reason`
+  and `condition_message` taken from the `Ready=False` condition:
+
+  ```bash
+  kubectl -n kafka-backup-system logs deployment/kafka-backup-operator \
+    | grep 'Resource status set to Failed'
+  ```
+
+  It covers failed runs, rejected specs, runs interrupted by an operator
+  restart and offset rollbacks whose verification did not match. Rejected
+  specs and interrupted runs were logged at `WARN` before, without the kind.
+- That record replaces the earlier per-kind lines: `Backup failed`,
+  `Restore failed`, `Validation failed`, `Offset reset failed`,
+  `Offset rollback failed`, `Validation failed` / `Validation spec check
+  failed` (rejected spec) and `The … was Running when the operator restarted`.
+  **Update log-based alerts that match those messages.** Alerts on
+  `level=ERROR` now also fire for rejected specs and interrupted runs.
+- A `KafkaOffsetReset` that ends `PartiallyCompleted` writes a `WARN` record,
+  `Resource status set to PartiallyCompleted`, with the same fields.
+- If the API server rejects the status patch, the failure is still logged, as
+  `Resource failed, and its Failed status could not be recorded`, with the
+  API error.
+
+### Fixed
+
+- A `KafkaOffsetRollback` whose verification found mismatched groups was
+  logged as `Offset rollback completed` at `INFO` while its status said
+  `Failed`. It is now logged as a failure only.
+
+Status, conditions, retries, metrics and RBAC are unchanged. No CRD change.
+
 ## 1.9.2 - 2026-11-24
 
 ### Security

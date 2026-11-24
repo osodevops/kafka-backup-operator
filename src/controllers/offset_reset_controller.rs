@@ -15,7 +15,7 @@ use kube::{
     },
     Api, Client, ResourceExt,
 };
-use tracing::{error, info, instrument, warn};
+use tracing::{error, info, instrument};
 
 use crate::controllers::Context;
 use crate::crd::KafkaOffsetReset;
@@ -123,7 +123,6 @@ async fn apply(reset: Arc<KafkaOffsetReset>, ctx: Arc<Context>) -> Result<Action
 
     // Validate the spec
     if let Err(e) = offset_reset_reconciler::validate(&reset) {
-        warn!(error = %e, "Validation failed");
         offset_reset_reconciler::update_status_failed(
             &reset,
             &ctx.client,

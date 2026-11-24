@@ -16,7 +16,7 @@ use kube::{
     Api, Client, ResourceExt,
 };
 use serde_json::json;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use super::status;
 use crate::adapters::{
@@ -150,8 +150,6 @@ pub async fn execute(
             Ok(Action::await_change())
         }
         Err(e) => {
-            error!(name = %name, error = %e, "Offset rollback failed");
-
             let failed_status = json!({
                 "status": {
                     "phase": "Failed",

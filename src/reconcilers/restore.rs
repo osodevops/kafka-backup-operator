@@ -18,7 +18,7 @@ use kube::{
     Api, Client, ResourceExt,
 };
 use serde_json::json;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use super::status;
 use crate::adapters::{
@@ -286,8 +286,6 @@ pub async fn execute(restore: &KafkaRestore, client: &Client, namespace: &str) -
             Ok(Action::await_change())
         }
         Err(e) => {
-            error!(name = %name, error = %e, "Restore failed");
-
             metrics::RESTORES_TOTAL
                 .with_label_values(&["failure", namespace, &name])
                 .inc();

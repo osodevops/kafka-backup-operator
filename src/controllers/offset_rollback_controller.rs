@@ -15,7 +15,7 @@ use kube::{
     },
     Api, Client, ResourceExt,
 };
-use tracing::{error, info, instrument, warn};
+use tracing::{error, info, instrument};
 
 use crate::controllers::Context;
 use crate::crd::KafkaOffsetRollback;
@@ -125,7 +125,6 @@ async fn apply(rollback: Arc<KafkaOffsetRollback>, ctx: Arc<Context>) -> Result<
 
     // Validate the spec
     if let Err(e) = offset_rollback_reconciler::validate(&rollback) {
-        warn!(error = %e, "Validation failed");
         offset_rollback_reconciler::update_status_failed(
             &rollback,
             &ctx.client,

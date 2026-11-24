@@ -21,7 +21,6 @@ use chrono::Utc;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::{Api, Resource};
 use serde_json::json;
-use tracing::warn;
 
 use super::status;
 
@@ -106,9 +105,5 @@ pub async fn mark_interrupted<K>(
 where
     K: Resource<DynamicType = ()> + Clone + serde::de::DeserializeOwned + std::fmt::Debug,
 {
-    warn!(
-        name = %name,
-        "The {what} was Running when the operator restarted; marking it Failed (Interrupted)"
-    );
     status::patch_status(api, name, interrupted_status(what, generation)).await
 }
