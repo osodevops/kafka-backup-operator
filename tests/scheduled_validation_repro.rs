@@ -125,6 +125,23 @@ fn creation_time_anchors_a_validation_without_a_recorded_start() {
 }
 
 #[test]
+fn future_year_validation_starts_at_its_first_matching_date() {
+    let mut validation = scheduled("future-year-validation", "Completed", None);
+    validation.spec.schedule = Some("0 0 0 * * * 2027".to_string());
+    let first_tick = Utc.with_ymd_and_hms(2027, 1, 1, 0, 0, 0).unwrap();
+
+    assert_eq!(
+        next_validation_time(&validation, at(8, 0, 0, 0)),
+        Some(first_tick)
+    );
+    assert!(!scheduled_validation_due(
+        &validation,
+        first_tick - chrono::Duration::seconds(1)
+    ));
+    assert!(scheduled_validation_due(&validation, first_tick));
+}
+
+#[test]
 fn next_run_is_the_next_tick_after_now() {
     let v = scheduled("next-run", "Completed", Some(at(7, 20, 44, 0)));
 

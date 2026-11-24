@@ -882,6 +882,22 @@ mod should_run_backup_tests {
         Utc.with_ymd_and_hms(2026, 4, 21, h, m, s).unwrap()
     }
 
+    #[test]
+    fn future_year_schedule_starts_at_its_first_matching_date() {
+        let creation = Utc.with_ymd_and_hms(2026, 11, 24, 8, 0, 0).unwrap();
+        let mut backup = make_backup(creation, None);
+        backup.metadata.name = Some("future-year-backup".to_string());
+        let schedule = Schedule::from_str("0 0 0 * * * 2027").unwrap();
+        let first_tick = Utc.with_ymd_and_hms(2027, 1, 1, 0, 0, 0).unwrap();
+
+        assert!(!should_run_backup(
+            &backup,
+            &schedule,
+            first_tick - chrono::Duration::seconds(1)
+        ));
+        assert!(should_run_backup(&backup, &schedule, first_tick));
+    }
+
     /// Cold start, creation timestamp well before now → a tick has elapsed
     /// between creation and now, so backup fires.
     #[test]

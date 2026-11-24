@@ -96,8 +96,9 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 ### 1.9.2
 
 Refreshes the Kubernetes client, schema generator and runtime dependencies, and
-uses `serde-saphyr` to generate CRD YAML. Core remains at `0.30.2`; the backup
-archive format is unchanged. **Apply the regenerated CRDs before upgrading the
+uses `serde-saphyr` to generate CRD YAML. Core `0.30.3` patches the bundled
+SQLite and ZIP dependencies; existing checkpoints and backup archives remain
+compatible. **Apply the regenerated CRDs before upgrading the
 operator**; Helm does not update existing CRDs:
 
 ```bash
@@ -114,6 +115,11 @@ structured validation diagnostics. Build the container with its pinned Rust
 1.100 base image and committed Cargo lockfile. See
 [the local upgrade test](minikube/README.md#release-upgrade-and-rollback-test)
 for the backwards compatibility and rollback checks.
+
+Future-year cron schedules now start at their first matching UTC date. For
+example, `0 0 0 * * * 2027` becomes due on January 1, 2027, even when created in
+November 2026. Earlier versions could skip initial matching months and days.
+The six/seven-field syntax is unchanged.
 
 ### 1.9.1
 

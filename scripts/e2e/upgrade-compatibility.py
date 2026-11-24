@@ -149,8 +149,13 @@ def main():
         run(["helm", "--kubeconfig", args.kubeconfig, "--kube-context", args.context,
              "upgrade", "--install", namespace, str(chart), "-n", namespace,
              "--skip-crds", "-f", str(values_file), "--wait", "--timeout", "3m"])
+        # Helm 3 may accept zero ready pods when maxUnavailable is one.
+        k("rollout", "status", f"deployment/{namespace}", "--timeout=180s")
         def leads():
-            holder = get("lease", f"{namespace}-leader")["spec"].get("holderIdentity")
+            lease = k("get", "lease", f"{namespace}-leader", "--ignore-not-found", "-o", "json")
+            if not lease.strip():
+                return False
+            holder = json.loads(lease)["spec"].get("holderIdentity")
             pods = json.loads(k("get", "pods", "-o", "json"))
             return any(p["metadata"]["name"] == holder and not p["metadata"].get("deletionTimestamp")
                        and p["spec"]["containers"][0]["image"] == image for p in pods["items"])
