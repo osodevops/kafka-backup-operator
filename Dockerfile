@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.100-slim-trixie AS builder
+FROM rust:1.100-slim-trixie@sha256:6f14b2b4b278ec0d50aa1d69541c304ce0f95e0f6268487aa9924af1c2e9aebe AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -19,7 +19,7 @@ RUN mkdir -p src/bin && \
     echo "fn main() {}" > src/bin/crdgen.rs
 
 # Build dependencies only (will be cached)
-RUN cargo build --release && rm -rf src
+RUN cargo build --locked --release && rm -rf src
 
 # Copy actual source code
 COPY src ./src
@@ -28,10 +28,10 @@ COPY src ./src
 RUN touch src/main.rs
 
 # Build the actual binary
-RUN cargo build --release --bin kafka-backup-operator
+RUN cargo build --locked --release --bin kafka-backup-operator
 
 # Runtime stage
-FROM debian:trixie-slim
+FROM debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \

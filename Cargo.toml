@@ -27,7 +27,7 @@ futures = "0.3.34"
 # Serialization
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-serde-saphyr = "2.2.0"
+serde-saphyr = { version = "2.2.0", default-features = false, features = ["serialize"] }
 
 # Time
 chrono = { version = "0.4.45", features = ["serde"] }
@@ -42,11 +42,6 @@ tracing-appender = "0.2.5"
 # Error handling
 anyhow = "1.0.105"
 thiserror = "2.0.21"
-
-# HTTP client (for validation webhooks/notifications)
-reqwest = { version = "0.13.5", default-features = false, features = [
-  "rustls",
-] }
 
 # TLS: pins the process-default crypto provider (see `install_crypto_provider`)
 rustls = { version = "0.23.46", default-features = false, features = [
@@ -78,6 +73,7 @@ name = "crdgen"
 path = "src/bin/crdgen.rs"
 
 [dev-dependencies]
+serde-saphyr = { version = "2.2.0", default-features = false, features = ["deserialize"] }
 tokio-test = "0.4.6"
 tower-test = "0.4.0"
 http = "1.5.0"

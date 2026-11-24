@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.9.2 - Unreleased
+
+### Changed
+
+- Refresh Rust and Kubernetes dependencies; migrate CRD serialization from
+  `serde_yaml` to `serde-saphyr`. Request only serialization features for the
+  operator's direct YAML dependency; enable deserialization for its tests.
+- Regenerate all five CRDs with the new schema generator, retaining the GCS
+  admission rules, integer partition mappings and structured validation data.
+  Apply CRDs before upgrading the operator; Helm does not update existing CRDs.
+- Pin container bases by digest and use locked Cargo builds in CI and releases.
+  Dependency audit failures now block CI and publication.
+- Add a local Kafka upgrade/rollback test covering stored resources, archive
+  compatibility, exact restored data, recurring schedules and leader handover.
+
 ## 1.9.1 - 2026-11-20
 
 ### Fixed

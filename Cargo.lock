@@ -1829,7 +1829,6 @@ dependencies = [
  "lazy_static",
  "libc",
  "prometheus",
- "reqwest 0.13.5",
  "rustls",
  "schemars",
  "serde",

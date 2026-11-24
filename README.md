@@ -93,6 +93,24 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 
 ## Upgrade Notes
 
+### 1.9.2
+
+Refreshes the Kubernetes client, schema generator and runtime dependencies, and
+uses `serde-saphyr` to generate CRD YAML. Core remains at `0.30.2`; the backup
+archive format is unchanged. **Apply the regenerated CRDs before upgrading the
+operator**; Helm does not update existing CRDs:
+
+```bash
+kubectl apply --server-side -f deploy/crds/all.yaml
+```
+
+The schema generator now emits explicit nullability and numeric bounds. Existing
+valid configurations retain their defaults, GCS authentication validation and
+structured validation diagnostics. Build the container with its pinned Rust
+1.100 base image and committed Cargo lockfile. See
+[the local upgrade test](minikube/README.md#release-upgrade-and-rollback-test)
+for the backwards compatibility and rollback checks.
+
 ### 1.9.1
 
 Uses core `0.30.2` to expose per-topic and per-partition message count diagnostics

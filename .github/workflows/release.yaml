@@ -57,7 +57,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
         with:
-          toolchain: stable
+          toolchain: 1.100.0
           components: clippy, rustfmt
 
       - name: Cache cargo registry
@@ -75,17 +75,30 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.22.1 --locked
+
+      - name: Audit release dependencies
+        run: cargo audit
 
       - name: Run tests
-        run: cargo test --all-features
+        run: cargo test --locked --all-features
         env:
           RUST_LOG: debug
+
+  compatibility:
+    name: Upgrade and rollback compatibility
+    needs: validate
+    permissions:
+      contents: read
+    uses: ./.github/workflows/helm-test.yaml
 
   build-and-push:
     name: Build and Push Docker Image (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    needs: [validate, test]
+    needs: [validate, test, compatibility]
     strategy:
       fail-fast: false
       matrix:
@@ -227,11 +240,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
         with:
-          toolchain: stable
+          toolchain: 1.100.0
 
       - name: Generate CRDs
         run: |
-          cargo build --release --bin crdgen
+          cargo build --locked --release --bin crdgen
           ./target/release/crdgen > crds.yaml
 
       - name: Generate changelog
