@@ -12,4 +12,5 @@ pub mod offset_rollback;
 pub mod restore;
 pub mod retention;
 pub mod runs;
+mod status;
 pub mod validation;

@@ -25,6 +25,7 @@ use kube::{
 use serde_json::json;
 use tracing::{error, info, warn};
 
+use super::status;
 use crate::adapters::{
     build_kafka_config, default_tls_dir, to_core_connection_config, TlsFileManager,
 };
@@ -159,7 +160,6 @@ pub async fn execute(reset: &KafkaOffsetReset, client: &Client, namespace: &str)
                 return Ok(Action::requeue(Duration::from_secs(15)));
             }
             RestoreReadiness::Failed(message) => {
-                warn!(name = %name, restore = %restore_name, "{}", message);
                 update_status_failed(reset, client, namespace, &message).await?;
                 return Ok(Action::await_change());
             }
@@ -264,18 +264,12 @@ pub async fn execute(reset: &KafkaOffsetReset, client: &Client, namespace: &str)
                     }]
                 }
             });
-            api.patch_status(
-                &name,
-                &PatchParams::apply("kafka-backup-operator"),
-                &Patch::Merge(completed_status),
-            )
-            .await?;
+            // Logs the groups that failed when the run is PartiallyCompleted.
+            status::patch_status(&api, &name, completed_status).await?;
 
             Ok(Action::await_change())
         }
         Err(e) => {
-            error!(name = %name, error = %e, "Offset reset failed");
-
             metrics::OFFSET_RESETS_TOTAL
                 .with_label_values(&["failure", namespace])
                 .inc();
@@ -294,12 +288,7 @@ pub async fn execute(reset: &KafkaOffsetReset, client: &Client, namespace: &str)
                     }]
                 }
             });
-            api.patch_status(
-                &name,
-                &PatchParams::apply("kafka-backup-operator"),
-                &Patch::Merge(failed_status),
-            )
-            .await?;
+            status::patch_status(&api, &name, failed_status).await?;
 
             Ok(Action::requeue(Duration::from_secs(300)))
         }
@@ -1203,14 +1192,7 @@ pub async fn update_status_failed(
         }
     });
 
-    api.patch_status(
-        &name,
-        &PatchParams::apply("kafka-backup-operator"),
-        &Patch::Merge(status),
-    )
-    .await?;
-
-    Ok(())
+    status::patch_status(&api, &name, status).await
 }
 
 #[cfg(test)]

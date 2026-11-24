@@ -93,6 +93,20 @@ The operator provides five CRDs for managing Kafka backup and restore operations
 
 ## Upgrade Notes
 
+### 1.9.3
+
+Each failed resource is logged once at `ERROR` as
+`Resource status set to Failed`, with `kind`, `namespace`, `name`, `reason`
+and `condition_message`. This replaces the per-kind messages (`Backup failed`,
+`Restore failed`, `Validation failed`, `Offset reset failed`,
+`Offset rollback failed`) and the `WARN` lines for rejected specs and
+interrupted runs: update any log-based alert that matches those. No CRD change.
+
+```bash
+kubectl -n kafka-backup-system logs deployment/kafka-backup-operator \
+  | grep 'Resource status set to Failed'
+```
+
 ### 1.9.2
 
 Refreshes the Kubernetes client, schema generator and runtime dependencies, and

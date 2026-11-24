@@ -16,8 +16,9 @@ use kube::{
     Api, Client, ResourceExt,
 };
 use serde_json::json;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
+use super::status;
 use crate::adapters::{
     build_kafka_config, default_tls_dir, to_core_connection_config, TlsFileManager,
 };
@@ -133,26 +134,22 @@ pub async fn execute(
 
     match rollback_result {
         Ok(result) => {
-            info!(
-                name = %name,
-                groups_rolled_back = result.groups_rolled_back,
-                duration = ?duration,
-                "Offset rollback completed"
-            );
-
             let finished = finished_status(&result, rollback.metadata.generation);
-            api.patch_status(
-                &name,
-                &PatchParams::apply("kafka-backup-operator"),
-                &Patch::Merge(finished),
-            )
-            .await?;
+            let completed = finished["status"]["phase"].as_str() == Some("Completed");
+            status::patch_status(&api, &name, finished).await?;
+
+            if completed {
+                info!(
+                    name = %name,
+                    groups_rolled_back = result.groups_rolled_back,
+                    duration = ?duration,
+                    "Offset rollback completed"
+                );
+            }
 
             Ok(Action::await_change())
         }
         Err(e) => {
-            error!(name = %name, error = %e, "Offset rollback failed");
-
             let failed_status = json!({
                 "status": {
                     "phase": "Failed",
@@ -167,12 +164,7 @@ pub async fn execute(
                     }]
                 }
             });
-            api.patch_status(
-                &name,
-                &PatchParams::apply("kafka-backup-operator"),
-                &Patch::Merge(failed_status),
-            )
-            .await?;
+            status::patch_status(&api, &name, failed_status).await?;
 
             Ok(Action::requeue(Duration::from_secs(300)))
         }
@@ -505,14 +497,7 @@ pub async fn update_status_failed(
         }
     });
 
-    api.patch_status(
-        &name,
-        &PatchParams::apply("kafka-backup-operator"),
-        &Patch::Merge(status),
-    )
-    .await?;
-
-    Ok(())
+    status::patch_status(&api, &name, status).await
 }
 
 #[cfg(test)]

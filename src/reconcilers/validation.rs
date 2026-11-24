@@ -20,8 +20,9 @@ use kube::{
     Api, Client, ResourceExt,
 };
 use serde_json::json;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
+use super::status;
 use crate::adapters::{
     build_validation_config, build_validation_report, emit_validation_evidence, evidence_report_id,
     evidence_storage, send_validation_notifications, to_core_storage_config_for_validation,
@@ -418,8 +419,6 @@ pub async fn execute(
             Ok(requeue_until_next_run(validation, Utc::now()))
         }
         Err(e) => {
-            error!(name = %name, error = %e, "Validation failed");
-
             metrics::VALIDATIONS_TOTAL
                 .with_label_values(&["error", namespace, &name])
                 .inc();
@@ -445,12 +444,7 @@ pub async fn execute(
                     }]
                 }
             });
-            api.patch_status(
-                &name,
-                &PatchParams::apply("kafka-backup-operator"),
-                &Patch::Merge(failed_status),
-            )
-            .await?;
+            status::patch_status(&api, &name, failed_status).await?;
 
             Ok(Action::requeue(Duration::from_secs(300)))
         }
@@ -732,14 +726,7 @@ pub async fn update_status_failed(
         }
     });
 
-    api.patch_status(
-        &name,
-        &PatchParams::apply("kafka-backup-operator"),
-        &Patch::Merge(status),
-    )
-    .await?;
-
-    Ok(())
+    status::patch_status(&api, &name, status).await
 }
 
 /// Whether a new spec generation runs at once. A suspended validation does

@@ -19,10 +19,10 @@ use std::sync::{Mutex, OnceLock};
 
 use chrono::Utc;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
-use kube::api::{Patch, PatchParams};
-use kube::Api;
+use kube::{Api, Resource};
 use serde_json::json;
-use tracing::warn;
+
+use super::status;
 
 /// Whether a `Running` status belongs to a run of this process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,17 +103,7 @@ pub async fn mark_interrupted<K>(
     generation: Option<i64>,
 ) -> crate::error::Result<()>
 where
-    K: Clone + serde::de::DeserializeOwned + std::fmt::Debug,
+    K: Resource<DynamicType = ()> + Clone + serde::de::DeserializeOwned + std::fmt::Debug,
 {
-    warn!(
-        name = %name,
-        "The {what} was Running when the operator restarted; marking it Failed (Interrupted)"
-    );
-    api.patch_status(
-        name,
-        &PatchParams::apply("kafka-backup-operator"),
-        &Patch::Merge(interrupted_status(what, generation)),
-    )
-    .await?;
-    Ok(())
+    status::patch_status(api, name, interrupted_status(what, generation)).await
 }
