@@ -210,7 +210,10 @@ def main():
                 # git archive contains only the two explicitly selected repository paths.
                 previous.extractall(tmp, filter="data")
             old_chart = pathlib.Path(tmp) / "deploy/helm/kafka-backup-operator"
-            k("apply", "--server-side", "-f", str(pathlib.Path(tmp) / "deploy/crds/all.yaml"))
+            # Establish the previous schema with Helm ownership, including when
+            # the CI smoke install has already created the candidate CRDs.
+            k("apply", "--server-side", "--field-manager=helm", "--force-conflicts",
+              "-f", str(pathlib.Path(tmp) / "deploy/crds/all.yaml"))
             previous_image = f"ghcr.io/osodevops/kafka-backup-operator:{args.previous_tag.removeprefix('v')}"
             install(old_chart, previous_image)
             backup_spec = {"kafkaCluster": kafka, "topics": ["source", "empty"],
@@ -253,7 +256,8 @@ def main():
             before = {kind: get(kind, name) for kind, name in stored}
             save("before-upgrade", before)
             old_lease = get("lease", f"{namespace}-leader")
-            k("apply", "--server-side", "-f", str(ROOT / "deploy/crds/all.yaml"))
+            k("apply", "--server-side", "--field-manager=kafka-backup-operator-crds",
+              "--force-conflicts", "-f", str(ROOT / "deploy/crds/all.yaml"))
             install(ROOT / "deploy/helm/kafka-backup-operator", args.image)
             for kind, name in stored:
                 after = get(kind, name)

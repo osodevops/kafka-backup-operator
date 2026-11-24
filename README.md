@@ -101,8 +101,12 @@ archive format is unchanged. **Apply the regenerated CRDs before upgrading the
 operator**; Helm does not update existing CRDs:
 
 ```bash
-kubectl apply --server-side -f deploy/crds/all.yaml
+kubectl apply --server-side --field-manager=kafka-backup-operator-crds \
+  --force-conflicts -f deploy/crds/all.yaml
 ```
+
+This explicitly transfers CRD schema ownership from Helm to the named field
+manager. Keep using that manager for subsequent CRD upgrades.
 
 The schema generator now emits explicit nullability and numeric bounds. Existing
 valid configurations retain their defaults, GCS authentication validation and
