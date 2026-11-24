@@ -14,7 +14,7 @@ on:
       - 'Dockerfile'
       - 'deploy/helm/kafka-backup-operator/**'
       - 'deploy/crds/**'
-      - 'scripts/e2e/upgrade-compatibility.py'
+      - 'scripts/e2e/**'
       - 'scripts/test_gcs_auth_admission.py'
       - '.github/workflows/helm-test.yaml'
 
@@ -106,7 +106,7 @@ jobs:
           cluster_name: chart-test
 
       - name: Load image into kind
-        run: kind load docker-image kafka-backup-operator:ci-test --name chart-test
+        run: bash scripts/e2e/load-kind-images.sh chart-test kafka-backup-operator:ci-test
 
       - name: Helm install
         run: |
@@ -129,7 +129,7 @@ jobs:
             python3 scripts/test_gcs_auth_admission.py --context kind-chart-test
           docker pull ghcr.io/osodevops/kafka-backup-operator:1.9.1
           docker pull apache/kafka:4.1.1
-          kind load docker-image ghcr.io/osodevops/kafka-backup-operator:1.9.1 apache/kafka:4.1.1 --name chart-test
+          bash scripts/e2e/load-kind-images.sh chart-test ghcr.io/osodevops/kafka-backup-operator:1.9.1 apache/kafka:4.1.1
           python3 scripts/e2e/upgrade-compatibility.py \
             --kubeconfig /tmp/kbo-upgrade.kubeconfig --context kind-chart-test \
             --image kafka-backup-operator:ci-test --evidence .e2e/upgrade

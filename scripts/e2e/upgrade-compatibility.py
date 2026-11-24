@@ -69,6 +69,8 @@ def main():
         def check():
             resource = get(kind, name)
             status = resource.get("status", {})
+            if status.get("observedGeneration") != resource["metadata"]["generation"]:
+                return None
             if status.get("phase") == "Failed" and phase != "Failed":
                 raise AssertionError(f"{kind}/{name}: {json.dumps(status)}")
             return resource if status.get("phase") == phase else None
@@ -95,6 +97,21 @@ def main():
         offsets = cli("kafka-get-offsets", "--topic", topic, "--time", "-1")
         assert sum(int(line.rsplit(":", 1)[1]) for line in offsets.splitlines()) == len(records), offsets
         print(f"PASS: {topic} exact keys, values and count ({len(records)} records)", flush=True)
+
+    def resume_backup(name, count, interval):
+        start = len(records)
+        added = [f"key-{i:03d}\t{{\"id\":{i},\"value\":\"compatibility-λ\"}}"
+                 for i in range(start, start + count)]
+        cli("kafka-console-producer", "--topic", "source", "--property", "parse.key=true",
+            "--property", "key.separator=\t", data="\n".join(added) + "\n")
+        records.extend(added)
+        verify_topic("source")
+        k("patch", "kafkabackup", name, "--type=merge", "-p",
+          json.dumps({"spec": {"checkpoint": {"enabled": True, "intervalSecs": interval}}}))
+        resumed = complete("kafkabackup", name)
+        assert resumed["status"]["recordsProcessed"] == count, resumed["status"]
+        assert resumed["status"]["backupId"] == name
+        print(f"PASS: {name} resumes its SQLite checkpoint and adds only {count} records", flush=True)
 
     def group_offsets():
         output = cli("kafka-consumer-groups", "--describe", "--group", "compatibility")
@@ -249,6 +266,8 @@ def main():
             assert new_lease["spec"]["holderIdentity"] != old_lease["spec"]["holderIdentity"]
             assert new_lease["spec"]["leaseTransitions"] > old_lease["spec"]["leaseTransitions"]
             restore("upgrade-restore", "legacy", "upgrade-restored")
+            resume_backup("legacy", 15, 6)
+            restore("resumed-restore", "legacy", "resumed-restored")
             cr("KafkaOffsetReset", "candidate-reset", reset_spec)
             complete("kafkaoffsetreset", "candidate-reset")
             assert group_offsets() == {0: 0, 1: 0, 2: 0}
@@ -285,6 +304,7 @@ def main():
             k("rollout", "status", f"deployment/{namespace}", "--timeout=120s")
             # Keep new CRDs on rollback, as Helm does, and read a candidate archive.
             install(old_chart, previous_image)
+            resume_backup("candidate", 5, 7)
             restore("rollback-restore", "candidate", "rollback-restored")
         save("result", {"passed": True, "namespace": namespace, "context": args.context,
                         "previous": args.previous_tag, "candidate": args.image, "records": len(records)})

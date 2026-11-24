@@ -25,21 +25,21 @@ kind create cluster --name kbo-upgrade --image kindest/node:v1.34.0 \
 docker build -t kafka-backup-operator:upgrade-test .
 docker pull ghcr.io/osodevops/kafka-backup-operator:1.9.1
 docker pull apache/kafka:4.1.1
-kind load docker-image kafka-backup-operator:upgrade-test \
-  ghcr.io/osodevops/kafka-backup-operator:1.9.1 apache/kafka:4.1.1 --name kbo-upgrade
+bash scripts/e2e/load-kind-images.sh kbo-upgrade kafka-backup-operator:upgrade-test \
+  ghcr.io/osodevops/kafka-backup-operator:1.9.1 apache/kafka:4.1.1
+kubectl --kubeconfig /tmp/kbo-upgrade.kubeconfig apply --server-side -f deploy/crds/all.yaml
+KUBECONFIG=/tmp/kbo-upgrade.kubeconfig \
+  python3 scripts/test_gcs_auth_admission.py --context kind-kbo-upgrade
 python3 scripts/e2e/upgrade-compatibility.py \
   --kubeconfig /tmp/kbo-upgrade.kubeconfig --context kind-kbo-upgrade \
   --image kafka-backup-operator:upgrade-test --evidence .e2e/upgrade
-KUBECONFIG=/tmp/kbo-upgrade.kubeconfig \
-  python3 scripts/test_gcs_auth_admission.py --context kind-kbo-upgrade
 kind delete cluster --name kbo-upgrade
 ```
 
-If Docker's containerd store causes kind image loading to fail with a missing
-content digest, save each image using `docker save --platform linux/arm64`
-(or `linux/amd64`) and use `kind load image-archive` on the resulting archives.
-For the admission script, expose the test kubeconfig with
-`KUBECONFIG=/tmp/kbo-upgrade.kubeconfig`.
+The image loader imports only the node's native architecture, avoiding missing
+manifest or attestation content with Docker's containerd image store. Run the
+admission script before installing an operator, using the explicit test
+kubeconfig, or uninstall the test release first to avoid update conflicts.
 
 The test produces keyed UTF-8 records across three partitions and runs a real
 backup, restore, validation, offset reset and snapshot rollback on v1.9.1. It upgrades the
@@ -48,8 +48,10 @@ status without replay, restores the old archive with the candidate, exercises
 scheduled backups and validations, and checks leader handover with two replicas.
 Finally, it rolls back the operator and restores a candidate archive with the
 previous release. Restored keys, values, exact end offsets and consumer group
-offsets must match. A fixture supplies the offset snapshot because automatic
-snapshot persistence is not implemented. Cloud storage authentication and TLS
+offsets must match. New records are appended after upgrade and downgrade;
+incremental backups must resume the other version's SQLite checkpoint and
+archive without duplicating existing records. A fixture supplies the offset
+snapshot because automatic snapshot persistence is not implemented. Cloud storage authentication and TLS
 require their separate integration environments.
 
 ## Quick Start
