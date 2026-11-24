@@ -36,15 +36,38 @@ from io import BytesIO
 
 archive, arch = sys.argv[1:]
 with tarfile.open(archive) as source, tarfile.open(archive + ".native", "w") as target:
-    for member in source:
+    members = source.getmembers()
+
+    def read_descriptor(item):
+        algorithm, digest = item["digest"].split(":", 1)
+        return json.load(source.extractfile(f"blobs/{algorithm}/{digest}"))
+
+    def native_manifests(item, annotations=None):
+        platform = item.get("platform", {})
+        if platform and (platform.get("os") != "linux" or platform.get("architecture") != arch):
+            return []
+        annotations = {**(annotations or {}), **item.get("annotations", {})}
+        if "io.containerd.manifest.subject" in annotations:
+            return []
+        manifest = read_descriptor(item)
+        if "manifests" in manifest:
+            return [child for entry in manifest["manifests"]
+                    for child in native_manifests(entry, annotations)]
+        if manifest.get("artifactType") or manifest.get("subject"):
+            return []
+        config = read_descriptor(manifest["config"])
+        if config.get("os") != "linux" or config.get("architecture") != arch:
+            return []
+        # Classic Docker exports may omit platform on the index descriptor.
+        return [{**item, "annotations": annotations,
+                 "platform": {"os": "linux", "architecture": arch}}]
+
+    for member in members:
         data = source.extractfile(member) if member.isfile() else None
         if member.name == "index.json":
             index = json.load(data)
-            index["manifests"] = [
-                item for item in index["manifests"]
-                if item.get("platform", {}).get("os") == "linux"
-                and item.get("platform", {}).get("architecture") == arch
-            ]
+            index["manifests"] = [native for item in index["manifests"]
+                                  for native in native_manifests(item)]
             if not index["manifests"]:
                 raise ValueError(f"No linux/{arch} image manifests in export")
             encoded = json.dumps(index).encode()
