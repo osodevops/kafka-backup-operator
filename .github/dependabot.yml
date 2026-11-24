@@ -1,5 +1,14 @@
 version: 2
 updates:
+  # Keep the pinned official base-image digests current.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "docker"
+
   # Rust/Cargo dependencies
   - package-ecosystem: "cargo"
     directory: "/"

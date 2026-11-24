@@ -45,6 +45,7 @@ pub struct KafkaRestoreSpec {
 
     /// Partition remapping (source -> target)
     #[serde(default)]
+    #[schemars(schema_with = "partition_mapping_schema")]
     pub partition_mapping: std::collections::HashMap<i32, i32>,
 
     /// Per-topic repartitioning, keyed by target topic name
@@ -140,6 +141,12 @@ pub enum HeaderPreflightPolicy {
     Full,
     /// Never scan
     Skip,
+}
+
+fn partition_mapping_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    // Integer-keyed maps emit patternProperties, which Kubernetes CRDs forbid.
+    // Serde still parses the keys as i32.
+    std::collections::HashMap::<String, i32>::json_schema(generator)
 }
 
 fn default_produce_batch_size() -> usize {

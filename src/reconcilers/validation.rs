@@ -224,7 +224,15 @@ pub fn scheduled_validation_due(validation: &KafkaBackupValidation, now: DateTim
         .status
         .as_ref()
         .and_then(|s| s.start_time)
-        .or_else(|| validation.metadata.creation_timestamp.as_ref().map(|t| t.0))
+        .or_else(|| {
+            validation
+                .metadata
+                .creation_timestamp
+                .as_ref()
+                .and_then(|t| {
+                    DateTime::<Utc>::from_timestamp(t.0.as_second(), t.0.subsec_nanosecond() as u32)
+                })
+        })
         .unwrap_or(now);
     if !tick_passed_since(&schedule, anchor, now) {
         return false;
@@ -562,7 +570,7 @@ async fn execute_validation_internal(
         target_client: std::sync::Arc::new(target_router),
         storage: storage_backend,
         pitr_timestamp: None,
-        http_client: reqwest::Client::new(),
+        http_client: Default::default(),
         target_bootstrap_servers: target_bootstrap_servers.clone(),
     };
 

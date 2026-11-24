@@ -4,6 +4,7 @@ permissions:
   contents: read
 
 on:
+  workflow_call:
   pull_request:
     branches: [main]
     paths:
@@ -12,6 +13,9 @@ on:
       - 'Cargo.lock'
       - 'Dockerfile'
       - 'deploy/helm/kafka-backup-operator/**'
+      - 'deploy/crds/**'
+      - 'scripts/e2e/**'
+      - 'scripts/test_gcs_auth_admission.py'
       - '.github/workflows/helm-test.yaml'
 
 jobs:
@@ -22,6 +26,7 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up Helm
         uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
@@ -58,9 +63,10 @@ jobs:
           helm template test-release deploy/helm/kafka-backup-operator \
             --set leaderElection.enabled=false --set updateStrategy.type=Recreate | tee /tmp/kbo-optout.yaml > /dev/null
           grep -q 'type: Recreate' /tmp/kbo-optout.yaml
-          ! grep -q 'maxSurge' /tmp/kbo-optout.yaml
-          ! grep -q 'LEADER_ELECTION_ENABLED' /tmp/kbo-optout.yaml
-          ! grep -q 'coordination.k8s.io' /tmp/kbo-optout.yaml
+          if grep -Eq 'maxSurge|LEADER_ELECTION_ENABLED|coordination.k8s.io' /tmp/kbo-optout.yaml; then
+            echo 'Unexpected rolling update or leader-election settings'
+            exit 1
+          fi
 
       - name: Helm template (service monitor)
         run: |
@@ -75,6 +81,7 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
@@ -99,7 +106,7 @@ jobs:
           cluster_name: chart-test
 
       - name: Load image into kind
-        run: kind load docker-image kafka-backup-operator:ci-test --name chart-test
+        run: bash scripts/e2e/load-kind-images.sh chart-test kafka-backup-operator:ci-test
 
       - name: Helm install
         run: |
@@ -113,6 +120,27 @@ jobs:
         run: |
           kubectl rollout status deployment/kafka-backup-operator --timeout=60s
           kubectl get pods -l app.kubernetes.io/name=kafka-backup-operator
+
+      - name: Verify previous release upgrade and rollback with Kafka
+        run: |
+          helm uninstall kafka-backup-operator --wait
+          kind get kubeconfig --name chart-test > /tmp/kbo-upgrade.kubeconfig
+          KUBECONFIG=/tmp/kbo-upgrade.kubeconfig \
+            python3 scripts/test_gcs_auth_admission.py --context kind-chart-test
+          docker pull ghcr.io/osodevops/kafka-backup-operator:1.9.1
+          docker pull apache/kafka:4.1.1
+          bash scripts/e2e/load-kind-images.sh chart-test ghcr.io/osodevops/kafka-backup-operator:1.9.1 apache/kafka:4.1.1
+          python3 scripts/e2e/upgrade-compatibility.py \
+            --kubeconfig /tmp/kbo-upgrade.kubeconfig --context kind-chart-test \
+            --image kafka-backup-operator:ci-test --evidence .e2e/upgrade
+
+      - name: Upload upgrade evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: upgrade-compatibility
+          path: .e2e/upgrade
+          if-no-files-found: ignore
 
       - name: Dump diagnostics on failure
         if: failure()

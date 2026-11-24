@@ -4,11 +4,55 @@ This directory contains a complete local testing environment for validating the 
 
 ## Prerequisites
 
+For release upgrade testing with kind instead of Minikube, see
+[Release upgrade and rollback test](#release-upgrade-and-rollback-test).
+
 - [Minikube](https://minikube.sigs.k8s.io/docs/start/) installed
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) installed
 - [kustomize](https://kubectl.docs.kubernetes.io/installation/kustomize/) (or kubectl with kustomize support)
 - Docker or another container runtime
 - Minimum 8GB RAM available for Minikube
+
+## Release upgrade and rollback test
+
+Requires Docker, kind, kubectl, Helm, Python 3.12+ and the previous release tag
+in Git. Run from the repository root. The test uses an explicit kubeconfig,
+creates its own namespace, and leaves resources and JSON evidence for diagnosis.
+
+```bash
+kind create cluster --name kbo-upgrade --image kindest/node:v1.34.0 \
+  --kubeconfig /tmp/kbo-upgrade.kubeconfig
+docker build -t kafka-backup-operator:upgrade-test .
+docker pull ghcr.io/osodevops/kafka-backup-operator:1.9.1
+docker pull apache/kafka:4.1.1
+bash scripts/e2e/load-kind-images.sh kbo-upgrade kafka-backup-operator:upgrade-test \
+  ghcr.io/osodevops/kafka-backup-operator:1.9.1 apache/kafka:4.1.1
+kubectl --kubeconfig /tmp/kbo-upgrade.kubeconfig apply --server-side -f deploy/crds/all.yaml
+KUBECONFIG=/tmp/kbo-upgrade.kubeconfig \
+  python3 scripts/test_gcs_auth_admission.py --context kind-kbo-upgrade
+python3 scripts/e2e/upgrade-compatibility.py \
+  --kubeconfig /tmp/kbo-upgrade.kubeconfig --context kind-kbo-upgrade \
+  --image kafka-backup-operator:upgrade-test --evidence .e2e/upgrade
+kind delete cluster --name kbo-upgrade
+```
+
+The image loader imports only the node's native architecture, avoiding missing
+manifest or attestation content with Docker's containerd image store. Run the
+admission script before installing an operator, using the explicit test
+kubeconfig, or uninstall the test release first to avoid update conflicts.
+
+The test produces keyed UTF-8 records across three partitions and runs a real
+backup, restore, validation, offset reset and snapshot rollback on v1.9.1. It upgrades the
+CRDs and operator, checks that all five stored CR kinds keep their UID, spec and
+status without replay, restores the old archive with the candidate, exercises
+scheduled backups and validations, and checks leader handover with two replicas.
+Finally, it rolls back the operator and restores a candidate archive with the
+previous release. Restored keys, values, exact end offsets and consumer group
+offsets must match. New records are appended after upgrade and downgrade;
+incremental backups must resume the other version's SQLite checkpoint and
+archive without duplicating existing records. A fixture supplies the offset
+snapshot because automatic snapshot persistence is not implemented. Cloud storage authentication and TLS
+require their separate integration environments.
 
 ## Quick Start
 
@@ -32,6 +76,7 @@ cd minikube
 ```
 
 This script will:
+
 1. Start Minikube (if not already running)
 2. Install Confluent for Kubernetes CRDs
 3. Deploy the Confluent Operator
@@ -82,7 +127,7 @@ minikube delete && minikube start --memory 8192 --cpus 4
 
 ## Directory Structure
 
-```
+```text
 minikube/
 ├── base/
 │   ├── cfk-operator/          # Confluent for Kubernetes operator
@@ -151,6 +196,7 @@ The test environment creates:
 ### Kafka Configuration
 
 The test environment uses a simplified single-node Kafka setup with:
+
 - No authentication (PLAINTEXT)
 - Single replica (for local testing)
 - Auto topic creation enabled
@@ -158,6 +204,7 @@ The test environment uses a simplified single-node Kafka setup with:
 ### KafkaBackup Configuration
 
 The `kafka-backup.yaml` creates a backup with:
+
 - **Storage**: PVC (`kafka-backup-storage`)
 - **Compression**: zstd (level 3)
 - **Checkpointing**: Enabled (30-second intervals)
@@ -291,12 +338,13 @@ This test validates the `caSecret` / `tlsSecret` split-secret feature with a rea
 ### What It Tests
 
 Strimzi generates TLS certificates in separate Kubernetes secrets:
+
 - **`my-cluster-cluster-ca-cert`** — the cluster CA certificate (`ca.crt`)
 - **`backup-user`** — per-user client cert and key (`user.crt`, `user.key`)
 
 The test deploys a `KafkaBackup` and `KafkaRestore` that reference these as separate secrets using the `caSecret` field, validating the full produce → backup → restore flow over mTLS.
 
-### Quick Start
+### Running the Test
 
 ```bash
 cd minikube

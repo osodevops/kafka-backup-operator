@@ -589,16 +589,16 @@ impl GcsStorageSpec {
 }
 
 /// Apply admission validation wherever the shared storage spec is embedded.
-fn gcs_storage_schema(generator: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    let mut schema = <Option<GcsStorageSpec>>::json_schema(generator).into_object();
-    schema.extensions.insert(
+fn gcs_storage_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let mut schema = <Option<GcsStorageSpec>>::json_schema(generator);
+    schema.ensure_object().insert(
         "x-kubernetes-validations".to_string(),
         serde_json::json!([{
             "rule": "(has(self.useWorkloadIdentity) && self.useWorkloadIdentity) != has(self.credentialsSecret)",
             "message": "GCS requires either credentialsSecret or useWorkloadIdentity: true, but not both"
         }]),
     );
-    schema.into()
+    schema
 }
 
 /// GCS credentials secret reference

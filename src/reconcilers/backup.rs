@@ -333,7 +333,11 @@ fn should_run_backup(backup: &KafkaBackup, schedule: &Schedule, now: DateTime<Ut
         .status
         .as_ref()
         .and_then(|s| s.last_schedule_time)
-        .or_else(|| backup.metadata.creation_timestamp.as_ref().map(|t| t.0))
+        .or_else(|| {
+            backup.metadata.creation_timestamp.as_ref().and_then(|t| {
+                DateTime::<Utc>::from_timestamp(t.0.as_second(), t.0.subsec_nanosecond() as u32)
+            })
+        })
         .unwrap_or(now);
 
     schedule
@@ -858,7 +862,13 @@ mod should_run_backup_tests {
         }))
         .unwrap();
         let mut b = KafkaBackup::new("test", spec);
-        b.metadata.creation_timestamp = Some(Time(creation));
+        b.metadata.creation_timestamp = Some(Time(
+            k8s_openapi::jiff::Timestamp::new(
+                creation.timestamp(),
+                creation.timestamp_subsec_nanos() as i32,
+            )
+            .unwrap(),
+        ));
         b.status = status;
         b
     }
@@ -870,6 +880,22 @@ mod should_run_backup_tests {
 
     fn at(h: u32, m: u32, s: u32) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 4, 21, h, m, s).unwrap()
+    }
+
+    #[test]
+    fn future_year_schedule_starts_at_its_first_matching_date() {
+        let creation = Utc.with_ymd_and_hms(2026, 11, 24, 8, 0, 0).unwrap();
+        let mut backup = make_backup(creation, None);
+        backup.metadata.name = Some("future-year-backup".to_string());
+        let schedule = Schedule::from_str("0 0 0 * * * 2027").unwrap();
+        let first_tick = Utc.with_ymd_and_hms(2027, 1, 1, 0, 0, 0).unwrap();
+
+        assert!(!should_run_backup(
+            &backup,
+            &schedule,
+            first_tick - chrono::Duration::seconds(1)
+        ));
+        assert!(should_run_backup(&backup, &schedule, first_tick));
     }
 
     /// Cold start, creation timestamp well before now → a tick has elapsed
